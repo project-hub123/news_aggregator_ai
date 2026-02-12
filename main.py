@@ -7,14 +7,7 @@ import streamlit as st
 import matplotlib.pyplot as plt
 
 from datetime import datetime
-
-from sklearn.model_selection import train_test_split
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import LogisticRegression
-from sklearn.svm import LinearSVC
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 from sklearn.metrics.pairwise import cosine_similarity
-
 from transformers import T5Tokenizer, T5ForConditionalGeneration
 import torch
 
@@ -28,9 +21,8 @@ PROJECT_TITLE = "Интеллектуальный агрегатор новос�
 ORGANIZATION = "ФГБУЗ МСЧ №72 ФМБА России"
 YEAR = datetime.now().year
 
-MODEL2_PATH = "models/model2.pkl"
-VECTORIZER2_PATH = "models/vectorizer2.pkl"
-
+MODEL_PATH = "models/model2.pkl"
+VECTORIZER_PATH = "models/vectorizer2.pkl"
 METRICS_FILE = "models/metrics_history.csv"
 
 os.makedirs("models", exist_ok=True)
@@ -50,57 +42,20 @@ def clean_text(text):
 
 
 # ==========================================================
-# ОБУЧЕНИЕ (MODEL2 — ОСНОВНАЯ)
+# ЗАГРУЗКА МОДЕЛИ
 # ==========================================================
 
-def train_model(df):
-
-    df["clean_text"] = df["text"].apply(clean_text)
-
-    vectorizer = TfidfVectorizer(
-        max_features=10000,
-        ngram_range=(1,2),
-        min_df=2
-    )
-
-    X = vectorizer.fit_transform(df["clean_text"])
-    y = df["category"]
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
-    )
-
-    model = LinearSVC()
-    model.fit(X_train, y_train)
-
-    y_pred = model.predict(X_test)
-    accuracy = accuracy_score(y_test, y_pred)
-
-    # сохраняем модель
-    joblib.dump(model, MODEL2_PATH)
-    joblib.dump(vectorizer, VECTORIZER2_PATH)
-
-    # сохраняем метрики
-    metrics_data = {
-        "date": datetime.now(),
-        "accuracy": accuracy,
-        "train_size": len(X_train),
-        "test_size": len(X_test)
-    }
-
-    if os.path.exists(METRICS_FILE):
-        old_metrics = pd.read_csv(METRICS_FILE)
-        new_metrics = pd.concat([old_metrics, pd.DataFrame([metrics_data])])
-    else:
-        new_metrics = pd.DataFrame([metrics_data])
-
-    new_metrics.to_csv(METRICS_FILE, index=False)
-
-    return accuracy, y_test, y_pred
+@st.cache_resource
+def load_model():
+    if os.path.exists(MODEL_PATH) and os.path.exists(VECTORIZER_PATH):
+        model = joblib.load(MODEL_PATH)
+        vectorizer = joblib.load(VECTORIZER_PATH)
+        return model, vectorizer
+    return None, None
 
 
 # ==========================================================
-# ПРЕДСКАЗАНИЕ КАТЕГОРИИ
+# ПРЕДСКАЗАНИЕ
 # ==========================================================
 
 def predict_category(text, model, vectorizer):
@@ -115,7 +70,6 @@ def predict_category(text, model, vectorizer):
 # ==========================================================
 
 def recommend_news(user_text, df, vectorizer):
-
     user_text_clean = clean_text(user_text)
     user_vector = vectorizer.transform([user_text_clean])
 
@@ -142,10 +96,20 @@ def load_generator():
 def generate_summary(text):
     tokenizer, model = load_generator()
     input_text = "summarize: " + text
-    input_ids = tokenizer.encode(input_text, return_tensors="pt", max_length=512, truncation=True)
+    input_ids = tokenizer.encode(
+        input_text,
+        return_tensors="pt",
+        max_length=512,
+        truncation=True
+    )
 
     with torch.no_grad():
-        output = model.generate(input_ids, max_length=120, num_beams=4, early_stopping=True)
+        output = model.generate(
+            input_ids,
+            max_length=120,
+            num_beams=4,
+            early_stopping=True
+        )
 
     return tokenizer.decode(output[0], skip_special_tokens=True)
 
@@ -169,66 +133,70 @@ menu = st.sidebar.selectbox(
     "Навигация",
     [
         "О проекте",
-        "Загрузка данных",
-        "Обучение модели",
-        "Тестирование модели",
+        "Анализ данных",
+        "Предсказание категории",
         "Рекомендации",
-        "Генерация саммари"
+        "Генерация саммари",
+        "История обучения"
     ]
 )
 
+model, vectorizer = load_model()
+
 
 # ----------------------------------------------------------
-# ОБУЧЕНИЕ
+# О ПРОЕКТЕ
 # ----------------------------------------------------------
 
-if menu == "Обучение модели":
+if menu == "О проекте":
+
+    st.write("""
+    Сервис реализует:
+    - классификацию новостей (LinearSVC, Accuracy ≈ 0.81)
+    - персонализированные рекомендации
+    - генерацию кратких аннотаций
+    - анализ распределения данных
+    """)
+
+
+# ----------------------------------------------------------
+# АНАЛИЗ ДАННЫХ
+# ----------------------------------------------------------
+
+if menu == "Анализ данных":
 
     if os.path.exists("data/news_dataset.csv"):
 
         df = pd.read_csv("data/news_dataset.csv")
 
-        if st.button("Обучить Model2 (LinearSVC)"):
+        st.subheader("Распределение категорий")
 
-            accuracy, y_test, y_pred = train_model(df)
+        fig, ax = plt.subplots(figsize=(10,5))
+        df["category"].value_counts().plot(kind="bar", ax=ax)
+        ax.set_title("Распределение новостей по категориям")
+        ax.set_ylabel("Количество")
+        st.pyplot(fig)
 
-            st.success(f"Accuracy: {accuracy:.3f}")
-            st.text(classification_report(y_test, y_pred))
-
-            cm = confusion_matrix(y_test, y_pred)
-            fig, ax = plt.subplots()
-            ax.imshow(cm)
-            ax.set_title("Confusion Matrix")
-            st.pyplot(fig)
+        st.write("Размер датасета:", df.shape)
 
     else:
-        st.warning("Сначала загрузите данные")
+        st.warning("Файл news_dataset.csv не найден")
 
 
 # ----------------------------------------------------------
-# ТЕСТИРОВАНИЕ
+# ПРЕДСКАЗАНИЕ
 # ----------------------------------------------------------
 
-if menu == "Тестирование модели":
+if menu == "Предсказание категории":
 
-    if os.path.exists(MODEL2_PATH):
-
-        model = joblib.load(MODEL2_PATH)
-        vectorizer = joblib.load(VECTORIZER2_PATH)
-
-        text_input = st.text_area("Введите текст для определения категории")
+    if model is None:
+        st.warning("Модель не найдена. Обучите её в ноутбуке.")
+    else:
+        text_input = st.text_area("Введите текст новости")
 
         if st.button("Определить категорию"):
             prediction = predict_category(text_input, model, vectorizer)
             st.success(f"Предсказанная категория: {prediction}")
-
-        if os.path.exists(METRICS_FILE):
-            st.subheader("История метрик")
-            metrics_df = pd.read_csv(METRICS_FILE)
-            st.dataframe(metrics_df)
-
-    else:
-        st.warning("Сначала обучите модель")
 
 
 # ----------------------------------------------------------
@@ -237,19 +205,15 @@ if menu == "Тестирование модели":
 
 if menu == "Рекомендации":
 
-    if os.path.exists(MODEL2_PATH):
-
-        vectorizer = joblib.load(VECTORIZER2_PATH)
+    if model is None:
+        st.warning("Модель не найдена.")
+    else:
         df = pd.read_csv("data/news_dataset.csv")
-
-        user_input = st.text_area("Введите тему интереса")
+        user_input = st.text_area("Введите интересующую тему")
 
         if st.button("Получить рекомендации"):
             results = recommend_news(user_input, df, vectorizer)
             st.dataframe(results[["text", "category"]])
-
-    else:
-        st.warning("Сначала обучите модель")
 
 
 # ----------------------------------------------------------
@@ -260,6 +224,27 @@ if menu == "Генерация саммари":
 
     text_input = st.text_area("Введите текст новости")
 
-    if st.button("Сгенерировать"):
+    if st.button("Сгенерировать краткое содержание"):
         summary = generate_summary(text_input)
         st.success(summary)
+
+
+# ----------------------------------------------------------
+# ИСТОРИЯ ОБУЧЕНИЯ
+# ----------------------------------------------------------
+
+if menu == "История обучения":
+
+    if os.path.exists(METRICS_FILE):
+
+        metrics_df = pd.read_csv(METRICS_FILE)
+        st.dataframe(metrics_df)
+
+        fig, ax = plt.subplots()
+        ax.plot(metrics_df["accuracy"])
+        ax.set_title("Динамика Accuracy")
+        ax.set_ylabel("Accuracy")
+        st.pyplot(fig)
+
+    else:
+        st.info("История обучения пока отсутствует")
