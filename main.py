@@ -20,7 +20,7 @@ import torch
 
 
 # ==========================================================
-# МЕТАДАННЫЕ ПРОЕКТА
+# МЕТАДАННЫЕ
 # ==========================================================
 
 DEVELOPER = "Гаврилов Никита Дмитриевич"
@@ -28,10 +28,10 @@ PROJECT_TITLE = "Интеллектуальный агрегатор новос�
 ORGANIZATION = "ФГБУЗ МСЧ №72 ФМБА России"
 YEAR = datetime.now().year
 
-MODEL1_PATH = "models/model1.pkl"
 MODEL2_PATH = "models/model2.pkl"
-VECTORIZER1_PATH = "models/vectorizer.pkl"
 VECTORIZER2_PATH = "models/vectorizer2.pkl"
+
+METRICS_FILE = "models/metrics_history.csv"
 
 os.makedirs("models", exist_ok=True)
 os.makedirs("data", exist_ok=True)
@@ -50,38 +50,10 @@ def clean_text(text):
 
 
 # ==========================================================
-# ОБУЧЕНИЕ МОДЕЛИ 1 (LogisticRegression)
+# ОБУЧЕНИЕ (MODEL2 — ОСНОВНАЯ)
 # ==========================================================
 
-def train_model1(df):
-
-    df["clean_text"] = df["text"].apply(clean_text)
-
-    vectorizer = TfidfVectorizer(max_features=5000)
-    X = vectorizer.fit_transform(df["clean_text"])
-    y = df["category"]
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
-    )
-
-    model = LogisticRegression(max_iter=1000)
-    model.fit(X_train, y_train)
-
-    y_pred = model.predict(X_test)
-    accuracy = accuracy_score(y_test, y_pred)
-
-    joblib.dump(model, MODEL1_PATH)
-    joblib.dump(vectorizer, VECTORIZER1_PATH)
-
-    return accuracy, y_test, y_pred
-
-
-# ==========================================================
-# ОБУЧЕНИЕ МОДЕЛИ 2 (LinearSVC)
-# ==========================================================
-
-def train_model2(df):
+def train_model(df):
 
     df["clean_text"] = df["text"].apply(clean_text)
 
@@ -104,10 +76,38 @@ def train_model2(df):
     y_pred = model.predict(X_test)
     accuracy = accuracy_score(y_test, y_pred)
 
+    # сохраняем модель
     joblib.dump(model, MODEL2_PATH)
     joblib.dump(vectorizer, VECTORIZER2_PATH)
 
+    # сохраняем метрики
+    metrics_data = {
+        "date": datetime.now(),
+        "accuracy": accuracy,
+        "train_size": len(X_train),
+        "test_size": len(X_test)
+    }
+
+    if os.path.exists(METRICS_FILE):
+        old_metrics = pd.read_csv(METRICS_FILE)
+        new_metrics = pd.concat([old_metrics, pd.DataFrame([metrics_data])])
+    else:
+        new_metrics = pd.DataFrame([metrics_data])
+
+    new_metrics.to_csv(METRICS_FILE, index=False)
+
     return accuracy, y_test, y_pred
+
+
+# ==========================================================
+# ПРЕДСКАЗАНИЕ КАТЕГОРИИ
+# ==========================================================
+
+def predict_category(text, model, vectorizer):
+    text_clean = clean_text(text)
+    vector = vectorizer.transform([text_clean])
+    prediction = model.predict(vector)[0]
+    return prediction
 
 
 # ==========================================================
@@ -140,31 +140,18 @@ def load_generator():
 
 
 def generate_summary(text):
-
     tokenizer, model = load_generator()
-
     input_text = "summarize: " + text
-    input_ids = tokenizer.encode(
-        input_text,
-        return_tensors="pt",
-        max_length=512,
-        truncation=True
-    )
+    input_ids = tokenizer.encode(input_text, return_tensors="pt", max_length=512, truncation=True)
 
     with torch.no_grad():
-        output = model.generate(
-            input_ids,
-            max_length=120,
-            num_beams=4,
-            early_stopping=True
-        )
+        output = model.generate(input_ids, max_length=120, num_beams=4, early_stopping=True)
 
-    summary = tokenizer.decode(output[0], skip_special_tokens=True)
-    return summary
+    return tokenizer.decode(output[0], skip_special_tokens=True)
 
 
 # ==========================================================
-# STREAMLIT GUI
+# GUI
 # ==========================================================
 
 st.set_page_config(page_title="AI Агрегатор новостей", layout="wide")
@@ -184,42 +171,11 @@ menu = st.sidebar.selectbox(
         "О проекте",
         "Загрузка данных",
         "Обучение модели",
+        "Тестирование модели",
         "Рекомендации",
         "Генерация саммари"
     ]
 )
-
-
-# ----------------------------------------------------------
-# О ПРОЕКТЕ
-# ----------------------------------------------------------
-
-if menu == "О проекте":
-
-    st.subheader("Описание сервиса")
-
-    st.write("""
-    Интеллектуальный агрегатор новостей реализует:
-    - классификацию текстов
-    - оптимизацию модели
-    - персонализированные рекомендации
-    - генерацию кратких аннотаций
-    """)
-
-
-# ----------------------------------------------------------
-# ЗАГРУЗКА ДАННЫХ
-# ----------------------------------------------------------
-
-if menu == "Загрузка данных":
-
-    uploaded_file = st.file_uploader("Загрузите CSV (text, category)")
-
-    if uploaded_file is not None:
-        df = pd.read_csv(uploaded_file)
-        df.to_csv("data/news_dataset.csv", index=False)
-        st.success("Данные сохранены")
-        st.dataframe(df.head())
 
 
 # ----------------------------------------------------------
@@ -232,17 +188,9 @@ if menu == "Обучение модели":
 
         df = pd.read_csv("data/news_dataset.csv")
 
-        model_choice = st.selectbox(
-            "Выберите модель",
-            ["LogisticRegression (Model1)", "LinearSVC (Model2)"]
-        )
+        if st.button("Обучить Model2 (LinearSVC)"):
 
-        if st.button("Обучить"):
-
-            if "Model1" in model_choice:
-                accuracy, y_test, y_pred = train_model1(df)
-            else:
-                accuracy, y_test, y_pred = train_model2(df)
+            accuracy, y_test, y_pred = train_model(df)
 
             st.success(f"Accuracy: {accuracy:.3f}")
             st.text(classification_report(y_test, y_pred))
@@ -258,26 +206,40 @@ if menu == "Обучение модели":
 
 
 # ----------------------------------------------------------
+# ТЕСТИРОВАНИЕ
+# ----------------------------------------------------------
+
+if menu == "Тестирование модели":
+
+    if os.path.exists(MODEL2_PATH):
+
+        model = joblib.load(MODEL2_PATH)
+        vectorizer = joblib.load(VECTORIZER2_PATH)
+
+        text_input = st.text_area("Введите текст для определения категории")
+
+        if st.button("Определить категорию"):
+            prediction = predict_category(text_input, model, vectorizer)
+            st.success(f"Предсказанная категория: {prediction}")
+
+        if os.path.exists(METRICS_FILE):
+            st.subheader("История метрик")
+            metrics_df = pd.read_csv(METRICS_FILE)
+            st.dataframe(metrics_df)
+
+    else:
+        st.warning("Сначала обучите модель")
+
+
+# ----------------------------------------------------------
 # РЕКОМЕНДАЦИИ
 # ----------------------------------------------------------
 
 if menu == "Рекомендации":
 
-    model_choice = st.selectbox(
-        "Выберите модель для рекомендаций",
-        ["Model1", "Model2"]
-    )
+    if os.path.exists(MODEL2_PATH):
 
-    if model_choice == "Model1":
-        model_path = MODEL1_PATH
-        vectorizer_path = VECTORIZER1_PATH
-    else:
-        model_path = MODEL2_PATH
-        vectorizer_path = VECTORIZER2_PATH
-
-    if os.path.exists(model_path):
-
-        vectorizer = joblib.load(vectorizer_path)
+        vectorizer = joblib.load(VECTORIZER2_PATH)
         df = pd.read_csv("data/news_dataset.csv")
 
         user_input = st.text_area("Введите тему интереса")
@@ -287,7 +249,7 @@ if menu == "Рекомендации":
             st.dataframe(results[["text", "category"]])
 
     else:
-        st.warning("Сначала обучите выбранную модель")
+        st.warning("Сначала обучите модель")
 
 
 # ----------------------------------------------------------
