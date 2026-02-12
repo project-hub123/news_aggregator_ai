@@ -11,6 +11,7 @@ from datetime import datetime
 from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
+from sklearn.svm import LinearSVC
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -27,8 +28,10 @@ PROJECT_TITLE = "Интеллектуальный агрегатор новос�
 ORGANIZATION = "ФГБУЗ МСЧ №72 ФМБА России"
 YEAR = datetime.now().year
 
-MODEL_PATH = "models/model1.pkl"
-VECTORIZER_PATH = "models/vectorizer.pkl"
+MODEL1_PATH = "models/model1.pkl"
+MODEL2_PATH = "models/model2.pkl"
+VECTORIZER1_PATH = "models/vectorizer.pkl"
+VECTORIZER2_PATH = "models/vectorizer2.pkl"
 
 os.makedirs("models", exist_ok=True)
 os.makedirs("data", exist_ok=True)
@@ -41,16 +44,16 @@ os.makedirs("data", exist_ok=True)
 def clean_text(text):
     text = str(text).lower()
     text = re.sub(r"http\S+", "", text)
-    text = re.sub(r"[^а-яa-z0-9\s]", " ", text)
+    text = re.sub(r"[^a-zа-я0-9\s]", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text
 
 
 # ==========================================================
-# ОБУЧЕНИЕ МОДЕЛИ
+# ОБУЧЕНИЕ МОДЕЛИ 1 (LogisticRegression)
 # ==========================================================
 
-def train_model(df):
+def train_model1(df):
 
     df["clean_text"] = df["text"].apply(clean_text)
 
@@ -59,18 +62,50 @@ def train_model(df):
     y = df["category"]
 
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
+        X, y, test_size=0.2, random_state=42, stratify=y
     )
 
     model = LogisticRegression(max_iter=1000)
     model.fit(X_train, y_train)
 
     y_pred = model.predict(X_test)
-
     accuracy = accuracy_score(y_test, y_pred)
 
-    joblib.dump(model, MODEL_PATH)
-    joblib.dump(vectorizer, VECTORIZER_PATH)
+    joblib.dump(model, MODEL1_PATH)
+    joblib.dump(vectorizer, VECTORIZER1_PATH)
+
+    return accuracy, y_test, y_pred
+
+
+# ==========================================================
+# ОБУЧЕНИЕ МОДЕЛИ 2 (LinearSVC)
+# ==========================================================
+
+def train_model2(df):
+
+    df["clean_text"] = df["text"].apply(clean_text)
+
+    vectorizer = TfidfVectorizer(
+        max_features=10000,
+        ngram_range=(1,2),
+        min_df=2
+    )
+
+    X = vectorizer.fit_transform(df["clean_text"])
+    y = df["category"]
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42, stratify=y
+    )
+
+    model = LinearSVC()
+    model.fit(X_train, y_train)
+
+    y_pred = model.predict(X_test)
+    accuracy = accuracy_score(y_test, y_pred)
+
+    joblib.dump(model, MODEL2_PATH)
+    joblib.dump(vectorizer, VECTORIZER2_PATH)
 
     return accuracy, y_test, y_pred
 
@@ -88,7 +123,6 @@ def recommend_news(user_text, df, vectorizer):
     news_vectors = vectorizer.transform(df["clean_text"])
 
     similarities = cosine_similarity(user_vector, news_vectors)
-
     top_indices = similarities.argsort()[0][-5:][::-1]
 
     return df.iloc[top_indices]
@@ -133,10 +167,7 @@ def generate_summary(text):
 # STREAMLIT GUI
 # ==========================================================
 
-st.set_page_config(
-    page_title="AI Агрегатор новостей",
-    layout="wide"
-)
+st.set_page_config(page_title="AI Агрегатор новостей", layout="wide")
 
 st.title(PROJECT_TITLE)
 st.markdown(f"""
@@ -165,18 +196,14 @@ menu = st.sidebar.selectbox(
 
 if menu == "О проекте":
 
-    st.subheader("Описание интеллектуального сервиса")
+    st.subheader("Описание сервиса")
 
     st.write("""
-    Данный сервис реализует интеллектуальную систему агрегации новостей
-    с использованием методов машинного обучения и генеративных моделей.
-    
-    Реализовано:
-    - классификация новостей
+    Интеллектуальный агрегатор новостей реализует:
+    - классификацию текстов
+    - оптимизацию модели
     - персонализированные рекомендации
-    - генерация краткого содержания новостей
-    - сохранение и загрузка моделей
-    - визуализация метрик
+    - генерацию кратких аннотаций
     """)
 
 
@@ -186,12 +213,12 @@ if menu == "О проекте":
 
 if menu == "Загрузка данных":
 
-    uploaded_file = st.file_uploader("Загрузите CSV файл (колонки: text, category)")
+    uploaded_file = st.file_uploader("Загрузите CSV (text, category)")
 
     if uploaded_file is not None:
         df = pd.read_csv(uploaded_file)
         df.to_csv("data/news_dataset.csv", index=False)
-        st.success("Данные успешно загружены")
+        st.success("Данные сохранены")
         st.dataframe(df.head())
 
 
@@ -205,12 +232,19 @@ if menu == "Обучение модели":
 
         df = pd.read_csv("data/news_dataset.csv")
 
-        if st.button("Обучить модель"):
+        model_choice = st.selectbox(
+            "Выберите модель",
+            ["LogisticRegression (Model1)", "LinearSVC (Model2)"]
+        )
 
-            accuracy, y_test, y_pred = train_model(df)
+        if st.button("Обучить"):
 
-            st.success(f"Accuracy модели: {accuracy:.3f}")
+            if "Model1" in model_choice:
+                accuracy, y_test, y_pred = train_model1(df)
+            else:
+                accuracy, y_test, y_pred = train_model2(df)
 
+            st.success(f"Accuracy: {accuracy:.3f}")
             st.text(classification_report(y_test, y_pred))
 
             cm = confusion_matrix(y_test, y_pred)
@@ -229,21 +263,31 @@ if menu == "Обучение модели":
 
 if menu == "Рекомендации":
 
-    if os.path.exists(MODEL_PATH):
+    model_choice = st.selectbox(
+        "Выберите модель для рекомендаций",
+        ["Model1", "Model2"]
+    )
 
-        vectorizer = joblib.load(VECTORIZER_PATH)
+    if model_choice == "Model1":
+        model_path = MODEL1_PATH
+        vectorizer_path = VECTORIZER1_PATH
+    else:
+        model_path = MODEL2_PATH
+        vectorizer_path = VECTORIZER2_PATH
+
+    if os.path.exists(model_path):
+
+        vectorizer = joblib.load(vectorizer_path)
         df = pd.read_csv("data/news_dataset.csv")
 
         user_input = st.text_area("Введите тему интереса")
 
         if st.button("Получить рекомендации"):
-
             results = recommend_news(user_input, df, vectorizer)
-
             st.dataframe(results[["text", "category"]])
 
     else:
-        st.warning("Сначала обучите модель")
+        st.warning("Сначала обучите выбранную модель")
 
 
 # ----------------------------------------------------------
@@ -254,8 +298,6 @@ if menu == "Генерация саммари":
 
     text_input = st.text_area("Введите текст новости")
 
-    if st.button("Сгенерировать краткое содержание"):
-
+    if st.button("Сгенерировать"):
         summary = generate_summary(text_input)
-
         st.success(summary)
