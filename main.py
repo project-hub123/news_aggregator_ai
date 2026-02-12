@@ -2,13 +2,13 @@ import os
 import re
 import joblib
 import pandas as pd
+import numpy as np
 import streamlit as st
 import matplotlib.pyplot as plt
 
 from datetime import datetime
 from sklearn.metrics.pairwise import cosine_similarity
-from transformers import T5Tokenizer, T5ForConditionalGeneration
-import torch
+from sklearn.feature_extraction.text import TfidfVectorizer
 
 
 # ==========================================================
@@ -78,7 +78,7 @@ def load_model():
 
 
 # ==========================================================
-# ПРЕДСКАЗАНИЕ
+# ПРЕДСКАЗАНИЕ КАТЕГОРИИ
 # ==========================================================
 
 def predict_category(text, model, vectorizer):
@@ -93,6 +93,7 @@ def predict_category(text, model, vectorizer):
 # ==========================================================
 
 def recommend_news(user_text, df, vectorizer):
+
     user_text_clean = clean_text(user_text)
     user_vector = vectorizer.transform([user_text_clean])
 
@@ -106,36 +107,27 @@ def recommend_news(user_text, df, vectorizer):
 
 
 # ==========================================================
-# ГЕНЕРАТИВНАЯ МОДЕЛЬ
+# ПРОСТАЯ ГЕНЕРАЦИЯ САММАРИ (Extractive TF-IDF)
 # ==========================================================
 
-@st.cache_resource
-def load_generator():
-    tokenizer = T5Tokenizer.from_pretrained("cointegrated/rut5-base")
-    model = T5ForConditionalGeneration.from_pretrained("cointegrated/rut5-base")
-    return tokenizer, model
+def generate_summary(text, num_sentences=2):
 
+    sentences = text.split(".")
+    sentences = [s.strip() for s in sentences if len(s.strip()) > 20]
 
-def generate_summary(text):
-    tokenizer, model = load_generator()
-    input_text = "summarize: " + text
+    if len(sentences) <= num_sentences:
+        return text
 
-    input_ids = tokenizer.encode(
-        input_text,
-        return_tensors="pt",
-        max_length=512,
-        truncation=True
-    )
+    vectorizer = TfidfVectorizer()
+    X = vectorizer.fit_transform(sentences)
 
-    with torch.no_grad():
-        output = model.generate(
-            input_ids,
-            max_length=120,
-            num_beams=4,
-            early_stopping=True
-        )
+    sentence_scores = np.array(X.sum(axis=1)).flatten()
 
-    return tokenizer.decode(output[0], skip_special_tokens=True)
+    top_indices = sentence_scores.argsort()[-num_sentences:]
+    top_indices.sort()
+
+    summary = ". ".join([sentences[i] for i in top_indices])
+    return summary
 
 
 # ==========================================================
@@ -179,7 +171,7 @@ if menu == "О проекте":
     Реализовано:
     - классификация новостей (LinearSVC, Accuracy ≈ 0.81)
     - персонализированные рекомендации
-    - генерация кратких аннотаций
+    - генерация кратких аннотаций (TF-IDF extractive)
     - логирование действий пользователя
     """)
 
