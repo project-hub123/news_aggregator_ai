@@ -1,7 +1,6 @@
 import os
 import re
 import joblib
-import numpy as np
 import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
@@ -24,9 +23,11 @@ YEAR = datetime.now().year
 MODEL_PATH = "models/model2.pkl"
 VECTORIZER_PATH = "models/vectorizer2.pkl"
 METRICS_FILE = "models/metrics_history.csv"
+LOG_FILE = "logs/user_actions.csv"
 
 os.makedirs("models", exist_ok=True)
 os.makedirs("data", exist_ok=True)
+os.makedirs("logs", exist_ok=True)
 
 
 # ==========================================================
@@ -39,6 +40,28 @@ def clean_text(text):
     text = re.sub(r"[^a-zа-я0-9\s]", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text
+
+
+# ==========================================================
+# ЛОГИРОВАНИЕ
+# ==========================================================
+
+def log_action(action_type, input_text, result):
+
+    log_data = {
+        "timestamp": datetime.now(),
+        "action": action_type,
+        "input_text": str(input_text)[:300],
+        "result": str(result)[:300]
+    }
+
+    if os.path.exists(LOG_FILE):
+        df_logs = pd.read_csv(LOG_FILE)
+        df_logs = pd.concat([df_logs, pd.DataFrame([log_data])])
+    else:
+        df_logs = pd.DataFrame([log_data])
+
+    df_logs.to_csv(LOG_FILE, index=False)
 
 
 # ==========================================================
@@ -96,6 +119,7 @@ def load_generator():
 def generate_summary(text):
     tokenizer, model = load_generator()
     input_text = "summarize: " + text
+
     input_ids = tokenizer.encode(
         input_text,
         return_tensors="pt",
@@ -137,7 +161,8 @@ menu = st.sidebar.selectbox(
         "Предсказание категории",
         "Рекомендации",
         "Генерация саммари",
-        "История обучения"
+        "История обучения",
+        "Логи действий"
     ]
 )
 
@@ -151,11 +176,11 @@ model, vectorizer = load_model()
 if menu == "О проекте":
 
     st.write("""
-    Сервис реализует:
-    - классификацию новостей (LinearSVC, Accuracy ≈ 0.81)
+    Реализовано:
+    - классификация новостей (LinearSVC, Accuracy ≈ 0.81)
     - персонализированные рекомендации
-    - генерацию кратких аннотаций
-    - анализ распределения данных
+    - генерация кратких аннотаций
+    - логирование действий пользователя
     """)
 
 
@@ -173,7 +198,7 @@ if menu == "Анализ данных":
 
         fig, ax = plt.subplots(figsize=(10,5))
         df["category"].value_counts().plot(kind="bar", ax=ax)
-        ax.set_title("Распределение новостей по категориям")
+        ax.set_title("Распределение новостей")
         ax.set_ylabel("Количество")
         st.pyplot(fig)
 
@@ -197,6 +222,7 @@ if menu == "Предсказание категории":
         if st.button("Определить категорию"):
             prediction = predict_category(text_input, model, vectorizer)
             st.success(f"Предсказанная категория: {prediction}")
+            log_action("predict", text_input, prediction)
 
 
 # ----------------------------------------------------------
@@ -215,6 +241,16 @@ if menu == "Рекомендации":
             results = recommend_news(user_input, df, vectorizer)
             st.dataframe(results[["text", "category"]])
 
+            log_action("recommend", user_input, "top5 returned")
+
+            csv = results.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="Скачать рекомендации CSV",
+                data=csv,
+                file_name="recommendations.csv",
+                mime="text/csv"
+            )
+
 
 # ----------------------------------------------------------
 # ГЕНЕРАЦИЯ
@@ -227,6 +263,7 @@ if menu == "Генерация саммари":
     if st.button("Сгенерировать краткое содержание"):
         summary = generate_summary(text_input)
         st.success(summary)
+        log_action("generate_summary", text_input, summary)
 
 
 # ----------------------------------------------------------
@@ -236,7 +273,6 @@ if menu == "Генерация саммари":
 if menu == "История обучения":
 
     if os.path.exists(METRICS_FILE):
-
         metrics_df = pd.read_csv(METRICS_FILE)
         st.dataframe(metrics_df)
 
@@ -245,6 +281,26 @@ if menu == "История обучения":
         ax.set_title("Динамика Accuracy")
         ax.set_ylabel("Accuracy")
         st.pyplot(fig)
-
     else:
-        st.info("История обучения пока отсутствует")
+        st.info("История обучения отсутствует")
+
+
+# ----------------------------------------------------------
+# ЛОГИ
+# ----------------------------------------------------------
+
+if menu == "Логи действий":
+
+    if os.path.exists(LOG_FILE):
+        df_logs = pd.read_csv(LOG_FILE)
+        st.dataframe(df_logs)
+
+        csv = df_logs.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="Скачать логи CSV",
+            data=csv,
+            file_name="user_logs.csv",
+            mime="text/csv"
+        )
+    else:
+        st.info("Логи пока отсутствуют")
