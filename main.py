@@ -107,16 +107,16 @@ def recommend_news(user_text, df, vectorizer):
 
 
 # ==========================================================
-# ПРОСТАЯ ГЕНЕРАЦИЯ САММАРИ (Extractive TF-IDF)
+# УЛУЧШЕННАЯ ГЕНЕРАЦИЯ САММАРИ
 # ==========================================================
 
-def generate_summary(text, num_sentences=2):
+def generate_summary(text, num_sentences=2, max_length=400):
 
-    sentences = text.split(".")
-    sentences = [s.strip() for s in sentences if len(s.strip()) > 20]
+    sentences = re.split(r'[.!?]', text)
+    sentences = [s.strip() for s in sentences if len(s.strip()) > 40]
 
-    if len(sentences) <= num_sentences:
-        return text
+    if len(sentences) < 2:
+        return "Введите более развернутый текст (не менее 2-3 предложений) для генерации краткого содержания."
 
     vectorizer = TfidfVectorizer()
     X = vectorizer.fit_transform(sentences)
@@ -127,7 +127,11 @@ def generate_summary(text, num_sentences=2):
     top_indices.sort()
 
     summary = ". ".join([sentences[i] for i in top_indices])
-    return summary
+
+    if len(summary) > max_length:
+        summary = summary[:max_length] + "..."
+
+    return summary + "."
 
 
 # ==========================================================
@@ -168,10 +172,10 @@ model, vectorizer = load_model()
 if menu == "О проекте":
 
     st.write("""
-    Реализовано:
-    - классификация новостей (LinearSVC, Accuracy ≈ 0.81)
+    Данный интеллектуальный сервис реализует:
+    - классификацию новостей (LinearSVC, Accuracy ≈ 0.81)
     - персонализированные рекомендации
-    - генерация кратких аннотаций (TF-IDF extractive)
+    - генерацию краткого содержания на основе TF-IDF
     - логирование действий пользователя
     """)
 
@@ -232,16 +236,7 @@ if menu == "Рекомендации":
         if st.button("Получить рекомендации"):
             results = recommend_news(user_input, df, vectorizer)
             st.dataframe(results[["text", "category"]])
-
             log_action("recommend", user_input, "top5 returned")
-
-            csv = results.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                label="Скачать рекомендации CSV",
-                data=csv,
-                file_name="recommendations.csv",
-                mime="text/csv"
-            )
 
 
 # ----------------------------------------------------------
@@ -254,7 +249,8 @@ if menu == "Генерация саммари":
 
     if st.button("Сгенерировать краткое содержание"):
         summary = generate_summary(text_input)
-        st.success(summary)
+        st.markdown("### Краткое содержание")
+        st.info(summary)
         log_action("generate_summary", text_input, summary)
 
 
@@ -286,13 +282,5 @@ if menu == "Логи действий":
     if os.path.exists(LOG_FILE):
         df_logs = pd.read_csv(LOG_FILE)
         st.dataframe(df_logs)
-
-        csv = df_logs.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            label="Скачать логи CSV",
-            data=csv,
-            file_name="user_logs.csv",
-            mime="text/csv"
-        )
     else:
         st.info("Логи пока отсутствуют")
