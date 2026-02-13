@@ -1,0 +1,4 @@
+username,password,role
+admin,admin123,Администратор
+analyst,analyst123,Аналитик
+user,user123,Пользователь
