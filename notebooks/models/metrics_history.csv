@@ -1,0 +1,4 @@
+model,accuracy
+LinearSVC,0.8235294117647058
+LogisticRegression,0.7602663706992231
+MultinomialNB,0.5926748057713651
