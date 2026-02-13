@@ -9,7 +9,6 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.feature_extraction.text import TfidfVectorizer
-from googletrans import Translator
 
 
 # ==========================================================
@@ -23,12 +22,30 @@ YEAR = datetime.now().year
 
 MODEL_PATH = "models/model2.pkl"
 VECTORIZER_PATH = "models/vectorizer2.pkl"
-METRICS_FILE = "models/metrics_history.csv"
 LOG_FILE = "logs/user_actions.csv"
 
 os.makedirs("models", exist_ok=True)
 os.makedirs("data", exist_ok=True)
 os.makedirs("logs", exist_ok=True)
+
+
+# ==========================================================
+# СЛОВАРЬ КАТЕГОРИЙ (АНГЛ → РУ)
+# ==========================================================
+
+CATEGORY_MAP = {
+    "ARTS & CULTURE": "Искусство и культура",
+    "BUSINESS": "Бизнес",
+    "COMEDY": "Юмор",
+    "CRIME": "Преступность",
+    "EDUCATION": "Образование",
+    "ENTERTAINMENT": "Развлечения",
+    "HEALTH": "Здравоохранение",
+    "POLITICS": "Политика",
+    "SPORTS": "Спорт",
+    "TECH": "Технологии",
+    "WOMEN": "Общество"
+}
 
 
 # ==========================================================
@@ -41,22 +58,6 @@ def clean_text(text):
     text = re.sub(r"[^a-zа-я0-9\s]", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text
-
-
-# ==========================================================
-# ПЕРЕВОДЧИК
-# ==========================================================
-
-@st.cache_resource
-def load_translator():
-    return Translator()
-
-def translate_to_ru(text):
-    translator = load_translator()
-    try:
-        return translator.translate(text, dest="ru").text
-    except:
-        return text
 
 
 # ==========================================================
@@ -191,7 +192,7 @@ if menu == "О проекте":
     Реализовано:
     - классификация новостей (LinearSVC, Accuracy ≈ 0.81)
     - персонализированные рекомендации
-    - автоматический перевод рекомендаций
+    - перевод категорий на русский язык
     - генерация краткого содержания
     - логирование действий пользователя
     """)
@@ -231,8 +232,9 @@ if menu == "Предсказание категории":
 
         if st.button("Определить категорию"):
             prediction = predict_category(text_input, model, vectorizer)
-            st.success(f"Предсказанная категория: {prediction}")
-            log_action("predict", text_input, prediction)
+            prediction_ru = CATEGORY_MAP.get(prediction, prediction)
+            st.success(f"Предсказанная категория: {prediction_ru}")
+            log_action("predict", text_input, prediction_ru)
 
 
 # ----------------------------------------------------------
@@ -251,10 +253,9 @@ if menu == "Рекомендации":
 
             results = recommend_news(user_input, df, vectorizer)
 
-            # Перевод заголовков
-            results["translated_text"] = results["text"].apply(translate_to_ru)
+            results["category_ru"] = results["category"].map(CATEGORY_MAP)
 
-            st.dataframe(results[["translated_text", "category"]])
+            st.dataframe(results[["text", "category_ru"]])
 
             log_action("recommend", user_input, "top5 returned")
 
