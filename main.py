@@ -321,6 +321,7 @@ else:
         [
             "О системе",
             "Рекомендации",
+            "Персональные рекомендации",
             "Предсказание категории",
             "Генерация аннотации",
             "Анализ данных",
@@ -395,6 +396,24 @@ else:
             log_action("recommend", text, "ok")
 
 
+# ======================================================
+# ПЕРСОНАЛЬНЫЕ РЕКОМЕНДАЦИИ 
+# ======================================================
+
+if menu == "Персональные рекомендации":
+
+    df = pd.read_csv("data/news_dataset.csv")
+
+    results = personalized_recommendations(
+        st.session_state.username,
+        df
+    )
+
+    if results is not None and not results.empty:
+        st.dataframe(results[["text", "category"]])
+    else:
+        st.info("Недостаточно данных для формирования персональной подборки.")
+
     # ======================================================
     # ПРЕДСКАЗАНИЕ
     # ======================================================
@@ -405,7 +424,7 @@ else:
         if st.button("Определить категорию"):
             pred = predict_category(text, model, vectorizer)
             st.success(f"Категория: {pred}")
-            log_action("predict", text, pred)
+            log_action("predict", text, pred, pred)
 
 
     # ======================================================
