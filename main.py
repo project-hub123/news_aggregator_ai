@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.feature_extraction.text import TfidfVectorizer
+from googletrans import Translator
 
 
 # ==========================================================
@@ -40,6 +41,22 @@ def clean_text(text):
     text = re.sub(r"[^a-zа-я0-9\s]", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text
+
+
+# ==========================================================
+# ПЕРЕВОДЧИК
+# ==========================================================
+
+@st.cache_resource
+def load_translator():
+    return Translator()
+
+def translate_to_ru(text):
+    translator = load_translator()
+    try:
+        return translator.translate(text, dest="ru").text
+    except:
+        return text
 
 
 # ==========================================================
@@ -78,7 +95,7 @@ def load_model():
 
 
 # ==========================================================
-# ПРЕДСКАЗАНИЕ КАТЕГОРИИ
+# ПРЕДСКАЗАНИЕ
 # ==========================================================
 
 def predict_category(text, model, vectorizer):
@@ -107,7 +124,7 @@ def recommend_news(user_text, df, vectorizer):
 
 
 # ==========================================================
-# УЛУЧШЕННАЯ ГЕНЕРАЦИЯ САММАРИ
+# ГЕНЕРАЦИЯ САММАРИ
 # ==========================================================
 
 def generate_summary(text, num_sentences=2, max_length=400):
@@ -116,7 +133,7 @@ def generate_summary(text, num_sentences=2, max_length=400):
     sentences = [s.strip() for s in sentences if len(s.strip()) > 40]
 
     if len(sentences) < 2:
-        return "Введите более развернутый текст (не менее 2-3 предложений) для генерации краткого содержания."
+        return "Введите более развернутый текст (не менее 2-3 предложений)."
 
     vectorizer = TfidfVectorizer()
     X = vectorizer.fit_transform(sentences)
@@ -157,7 +174,6 @@ menu = st.sidebar.selectbox(
         "Предсказание категории",
         "Рекомендации",
         "Генерация саммари",
-        "История обучения",
         "Логи действий"
     ]
 )
@@ -172,10 +188,11 @@ model, vectorizer = load_model()
 if menu == "О проекте":
 
     st.write("""
-    Данный интеллектуальный сервис реализует:
-    - классификацию новостей (LinearSVC, Accuracy ≈ 0.81)
+    Реализовано:
+    - классификация новостей (LinearSVC, Accuracy ≈ 0.81)
     - персонализированные рекомендации
-    - генерацию краткого содержания на основе TF-IDF
+    - автоматический перевод рекомендаций
+    - генерация краткого содержания
     - логирование действий пользователя
     """)
 
@@ -190,12 +207,9 @@ if menu == "Анализ данных":
 
         df = pd.read_csv("data/news_dataset.csv")
 
-        st.subheader("Распределение категорий")
-
         fig, ax = plt.subplots(figsize=(10,5))
         df["category"].value_counts().plot(kind="bar", ax=ax)
         ax.set_title("Распределение новостей")
-        ax.set_ylabel("Количество")
         st.pyplot(fig)
 
         st.write("Размер датасета:", df.shape)
@@ -211,7 +225,7 @@ if menu == "Анализ данных":
 if menu == "Предсказание категории":
 
     if model is None:
-        st.warning("Модель не найдена. Обучите её в ноутбуке.")
+        st.warning("Модель не найдена.")
     else:
         text_input = st.text_area("Введите текст новости")
 
@@ -234,8 +248,14 @@ if menu == "Рекомендации":
         user_input = st.text_area("Введите интересующую тему")
 
         if st.button("Получить рекомендации"):
+
             results = recommend_news(user_input, df, vectorizer)
-            st.dataframe(results[["text", "category"]])
+
+            # Перевод заголовков
+            results["translated_text"] = results["text"].apply(translate_to_ru)
+
+            st.dataframe(results[["translated_text", "category"]])
+
             log_action("recommend", user_input, "top5 returned")
 
 
@@ -252,25 +272,6 @@ if menu == "Генерация саммари":
         st.markdown("### Краткое содержание")
         st.info(summary)
         log_action("generate_summary", text_input, summary)
-
-
-# ----------------------------------------------------------
-# ИСТОРИЯ ОБУЧЕНИЯ
-# ----------------------------------------------------------
-
-if menu == "История обучения":
-
-    if os.path.exists(METRICS_FILE):
-        metrics_df = pd.read_csv(METRICS_FILE)
-        st.dataframe(metrics_df)
-
-        fig, ax = plt.subplots()
-        ax.plot(metrics_df["accuracy"])
-        ax.set_title("Динамика Accuracy")
-        ax.set_ylabel("Accuracy")
-        st.pyplot(fig)
-    else:
-        st.info("История обучения отсутствует")
 
 
 # ----------------------------------------------------------
