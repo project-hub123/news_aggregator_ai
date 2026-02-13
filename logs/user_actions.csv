@@ -7,3 +7,15 @@ timestamp,action,input_text,result
 2026-02-13 09:15:25.038526,recommend,"health vaccination medicine prevention disease
 
 ",top5 returned
+2026-02-13 10:05:50.613979,recommend,"вакцинация здоровье медицина профилактика
+",top5 returned
+2026-02-13 10:08:13.862612,recommend,"экономика рынок инвестиции бизнес
+",top5 returned
+2026-02-13 10:08:36.697584,recommend,"энергетика экономика война
+",top5 returned
+2026-02-13 10:09:00.793497,recommend,"любовь мир музыка 
+",top5 returned
+2026-02-13 10:09:43.641666,recommend,"путешествие музыка 
+",top5 returned
+2026-02-13 10:09:55.328181,recommend,"путешествие по миру
+",top5 returned

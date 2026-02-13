@@ -9,6 +9,8 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics import accuracy_score
+from sklearn.svm import LinearSVC
 
 
 # ==========================================================
@@ -20,32 +22,13 @@ PROJECT_TITLE = "Интеллектуальный агрегатор новос�
 ORGANIZATION = "ФГБУЗ МСЧ №72 ФМБА России"
 YEAR = datetime.now().year
 
-MODEL_PATH = "models/model2.pkl"
-VECTORIZER_PATH = "models/vectorizer2.pkl"
+MODEL_PATH = "models/model.pkl"
+VECTORIZER_PATH = "models/vectorizer.pkl"
 LOG_FILE = "logs/user_actions.csv"
 
 os.makedirs("models", exist_ok=True)
 os.makedirs("data", exist_ok=True)
 os.makedirs("logs", exist_ok=True)
-
-
-# ==========================================================
-# СЛОВАРЬ КАТЕГОРИЙ (АНГЛ → РУ)
-# ==========================================================
-
-CATEGORY_MAP = {
-    "ARTS & CULTURE": "Искусство и культура",
-    "BUSINESS": "Бизнес",
-    "COMEDY": "Юмор",
-    "CRIME": "Преступность",
-    "EDUCATION": "Образование",
-    "ENTERTAINMENT": "Развлечения",
-    "HEALTH": "Здравоохранение",
-    "POLITICS": "Политика",
-    "SPORTS": "Спорт",
-    "TECH": "Технологии",
-    "WOMEN": "Общество"
-}
 
 
 # ==========================================================
@@ -55,7 +38,7 @@ CATEGORY_MAP = {
 def clean_text(text):
     text = str(text).lower()
     text = re.sub(r"http\S+", "", text)
-    text = re.sub(r"[^a-zа-я0-9\s]", " ", text)
+    text = re.sub(r"[^а-яa-z0-9\s]", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text
 
@@ -96,6 +79,31 @@ def load_model():
 
 
 # ==========================================================
+# ОБУЧЕНИЕ МОДЕЛИ
+# ==========================================================
+
+def train_model(df):
+
+    df["clean_text"] = df["text"].apply(clean_text)
+
+    vectorizer = TfidfVectorizer(
+        max_features=15000,
+        ngram_range=(1,2)
+    )
+
+    X = vectorizer.fit_transform(df["clean_text"])
+    y = df["category"]
+
+    model = LinearSVC()
+    model.fit(X, y)
+
+    joblib.dump(model, MODEL_PATH)
+    joblib.dump(vectorizer, VECTORIZER_PATH)
+
+    return model, vectorizer
+
+
+# ==========================================================
 # ПРЕДСКАЗАНИЕ
 # ==========================================================
 
@@ -107,19 +115,26 @@ def predict_category(text, model, vectorizer):
 
 
 # ==========================================================
-# РЕКОМЕНДАЦИИ
+# РЕКОМЕНДАЦИИ (исправленные)
 # ==========================================================
 
-def recommend_news(user_text, df, vectorizer):
-
-    user_text_clean = clean_text(user_text)
-    user_vector = vectorizer.transform([user_text_clean])
+def recommend_news(user_text, df):
 
     df["clean_text"] = df["text"].apply(clean_text)
-    news_vectors = vectorizer.transform(df["clean_text"])
 
-    similarities = cosine_similarity(user_vector, news_vectors)
-    top_indices = similarities.argsort()[0][-5:][::-1]
+    rec_vectorizer = TfidfVectorizer(
+        max_features=15000,
+        ngram_range=(1,2)
+    )
+
+    news_vectors = rec_vectorizer.fit_transform(df["clean_text"])
+
+    user_text_clean = clean_text(user_text)
+    user_vector = rec_vectorizer.transform([user_text_clean])
+
+    similarities = cosine_similarity(user_vector, news_vectors).flatten()
+
+    top_indices = similarities.argsort()[-5:][::-1]
 
     return df.iloc[top_indices]
 
@@ -128,13 +143,13 @@ def recommend_news(user_text, df, vectorizer):
 # ГЕНЕРАЦИЯ САММАРИ
 # ==========================================================
 
-def generate_summary(text, num_sentences=2, max_length=400):
+def generate_summary(text, num_sentences=2):
 
     sentences = re.split(r'[.!?]', text)
     sentences = [s.strip() for s in sentences if len(s.strip()) > 40]
 
     if len(sentences) < 2:
-        return "Введите более развернутый текст (не менее 2-3 предложений)."
+        return "Введите более развернутый текст (минимум 2-3 предложения)."
 
     vectorizer = TfidfVectorizer()
     X = vectorizer.fit_transform(sentences)
@@ -145,9 +160,6 @@ def generate_summary(text, num_sentences=2, max_length=400):
     top_indices.sort()
 
     summary = ". ".join([sentences[i] for i in top_indices])
-
-    if len(summary) > max_length:
-        summary = summary[:max_length] + "..."
 
     return summary + "."
 
@@ -171,6 +183,7 @@ menu = st.sidebar.selectbox(
     "Навигация",
     [
         "О проекте",
+        "Обучение модели",
         "Анализ данных",
         "Предсказание категории",
         "Рекомендации",
@@ -182,25 +195,43 @@ menu = st.sidebar.selectbox(
 model, vectorizer = load_model()
 
 
-# ----------------------------------------------------------
+# ==========================================================
 # О ПРОЕКТЕ
-# ----------------------------------------------------------
+# ==========================================================
 
 if menu == "О проекте":
 
     st.write("""
-    Реализовано:
-    - классификация новостей (LinearSVC, Accuracy ≈ 0.81)
+    Сервис выполняет:
+    - классификацию новостей
     - персонализированные рекомендации
-    - перевод категорий на русский язык
-    - генерация краткого содержания
+    - автоматическую генерацию краткого содержания
     - логирование действий пользователя
     """)
 
 
-# ----------------------------------------------------------
-# АНАЛИЗ ДАННЫХ
-# ----------------------------------------------------------
+# ==========================================================
+# ОБУЧЕНИЕ
+# ==========================================================
+
+if menu == "Обучение модели":
+
+    if os.path.exists("data/news_dataset.csv"):
+
+        df = pd.read_csv("data/news_dataset.csv")
+
+        if st.button("Обучить модель"):
+
+            model, vectorizer = train_model(df)
+            st.success("Модель успешно обучена и сохранена.")
+
+    else:
+        st.warning("Файл data/news_dataset.csv не найден.")
+
+
+# ==========================================================
+# АНАЛИЗ
+# ==========================================================
 
 if menu == "Анализ данных":
 
@@ -210,59 +241,59 @@ if menu == "Анализ данных":
 
         fig, ax = plt.subplots(figsize=(10,5))
         df["category"].value_counts().plot(kind="bar", ax=ax)
-        ax.set_title("Распределение новостей")
+        ax.set_title("Распределение категорий")
         st.pyplot(fig)
 
         st.write("Размер датасета:", df.shape)
 
     else:
-        st.warning("Файл news_dataset.csv не найден")
+        st.warning("Файл news_dataset.csv не найден.")
 
 
-# ----------------------------------------------------------
+# ==========================================================
 # ПРЕДСКАЗАНИЕ
-# ----------------------------------------------------------
+# ==========================================================
 
 if menu == "Предсказание категории":
 
     if model is None:
-        st.warning("Модель не найдена.")
+        st.warning("Сначала обучите модель.")
     else:
         text_input = st.text_area("Введите текст новости")
 
         if st.button("Определить категорию"):
             prediction = predict_category(text_input, model, vectorizer)
-            prediction_ru = CATEGORY_MAP.get(prediction, prediction)
-            st.success(f"Предсказанная категория: {prediction_ru}")
-            log_action("predict", text_input, prediction_ru)
+            st.success(f"Категория: {prediction}")
+            log_action("predict", text_input, prediction)
 
 
-# ----------------------------------------------------------
+# ==========================================================
 # РЕКОМЕНДАЦИИ
-# ----------------------------------------------------------
+# ==========================================================
 
 if menu == "Рекомендации":
 
-    if model is None:
-        st.warning("Модель не найдена.")
-    else:
+    if os.path.exists("data/news_dataset.csv"):
+
         df = pd.read_csv("data/news_dataset.csv")
+
         user_input = st.text_area("Введите интересующую тему")
 
         if st.button("Получить рекомендации"):
 
-            results = recommend_news(user_input, df, vectorizer)
+            results = recommend_news(user_input, df)
 
-            results["category_ru"] = results["category"].map(CATEGORY_MAP)
+            st.dataframe(results[["text", "category"]])
 
-            st.dataframe(results[["text", "category_ru"]])
+            log_action("recommend", user_input, "top5")
 
-            log_action("recommend", user_input, "top5 returned")
+    else:
+        st.warning("Файл news_dataset.csv не найден.")
 
 
-# ----------------------------------------------------------
-# ГЕНЕРАЦИЯ
-# ----------------------------------------------------------
+# ==========================================================
+# САММАРИ
+# ==========================================================
 
 if menu == "Генерация саммари":
 
@@ -270,14 +301,13 @@ if menu == "Генерация саммари":
 
     if st.button("Сгенерировать краткое содержание"):
         summary = generate_summary(text_input)
-        st.markdown("### Краткое содержание")
         st.info(summary)
-        log_action("generate_summary", text_input, summary)
+        log_action("summary", text_input, summary)
 
 
-# ----------------------------------------------------------
+# ==========================================================
 # ЛОГИ
-# ----------------------------------------------------------
+# ==========================================================
 
 if menu == "Логи действий":
 
@@ -285,4 +315,4 @@ if menu == "Логи действий":
         df_logs = pd.read_csv(LOG_FILE)
         st.dataframe(df_logs)
     else:
-        st.info("Логи пока отсутствуют")
+        st.info("Логи отсутствуют.")
