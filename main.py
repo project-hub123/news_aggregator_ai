@@ -36,7 +36,7 @@ os.makedirs("logs", exist_ok=True)
 
 
 # ==========================================================
-# ХЕШИРОВАНИЕ
+# ХЕШИРОВАНИЕ ПАРОЛЕЙ
 # ==========================================================
 
 def hash_password(password):
@@ -44,7 +44,7 @@ def hash_password(password):
 
 
 # ==========================================================
-# СОЗДАНИЕ ADMIN
+# СОЗДАНИЕ ADMIN ПРИ ПЕРВОМ ЗАПУСКЕ
 # ==========================================================
 
 if not os.path.exists(USERS_FILE):
@@ -56,7 +56,7 @@ if not os.path.exists(USERS_FILE):
 
 
 # ==========================================================
-# ПОЛЬЗОВАТЕЛИ
+# УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ
 # ==========================================================
 
 def load_users():
@@ -76,7 +76,6 @@ def login(username, password):
 
 def register_user(username, password):
     users = load_users()
-
     if username in users["username"].values:
         return False, "Пользователь уже существует"
 
@@ -102,7 +101,7 @@ def update_role(username, new_role):
 
 
 # ==========================================================
-# ПРЕДОБРАБОТКА
+# ПРЕДОБРАБОТКА ТЕКСТА
 # ==========================================================
 
 def clean_text(text):
@@ -114,7 +113,7 @@ def clean_text(text):
 
 
 # ==========================================================
-# АННОТАЦИЯ
+# ГЕНЕРАЦИЯ КРАТКОЙ АННОТАЦИИ (TF-IDF)
 # ==========================================================
 
 def generate_summary(text, num_sentences=2):
@@ -137,7 +136,7 @@ def generate_summary(text, num_sentences=2):
 
 
 # ==========================================================
-# ЛОГИРОВАНИЕ (с категорией)
+# ЛОГИРОВАНИЕ
 # ==========================================================
 
 def log_action(action_type, input_text, result, category=None):
@@ -165,7 +164,6 @@ def log_action(action_type, input_text, result, category=None):
 # ==========================================================
 
 def train_model(df):
-
     df["clean_text"] = df["text"].apply(clean_text)
 
     vectorizer = TfidfVectorizer(max_features=20000, ngram_range=(1,2))
@@ -210,37 +208,7 @@ def predict_category(text, model, vectorizer):
     return model.predict(vector)[0]
 
 
-# ==========================================================
-# ПЕРСОНИФИКАЦИЯ
-# ==========================================================
-
-def get_user_preference(username):
-
-    if not os.path.exists(LOG_FILE):
-        return None
-
-    logs = pd.read_csv(LOG_FILE)
-    user_logs = logs[(logs["user"] == username) &
-                     (logs["category"].notna())]
-
-    if user_logs.empty:
-        return None
-
-    return user_logs["category"].value_counts().idxmax()
-
-
-def personalized_recommendations(username, df):
-
-    preferred_category = get_user_preference(username)
-
-    if preferred_category:
-        df = df[df["category"] == preferred_category]
-
-    return df.sample(min(5, len(df)))
-
-
 def recommend_news(user_text, df):
-
     df["clean_text"] = df["text"].apply(clean_text)
 
     vectorizer = TfidfVectorizer(max_features=20000, ngram_range=(1,2))
@@ -254,7 +222,7 @@ def recommend_news(user_text, df):
 
 
 # ==========================================================
-# STREAMLIT
+# STREAMLIT GUI
 # ==========================================================
 
 st.set_page_config(page_title=PROJECT_TITLE, layout="wide")
@@ -298,9 +266,8 @@ if not st.session_state.logged_in:
             else:
                 st.error(msg)
 
-
 # ==========================================================
-# ОСНОВНАЯ ЧАСТЬ
+# ОСНОВНАЯ СИСТЕМА
 # ==========================================================
 
 else:
@@ -316,8 +283,7 @@ else:
         "Навигация",
         [
             "О системе",
-            "Персональные рекомендации",
-            "Рекомендации по запросу",
+            "Рекомендации",
             "Предсказание категории",
             "Генерация аннотации",
             "Анализ данных",
@@ -330,35 +296,66 @@ else:
 
     model, vectorizer = load_model()
 
-
     # ======================================================
-    # ПЕРСОНАЛЬНЫЕ РЕКОМЕНДАЦИИ
-    # ======================================================
-
-    if menu == "Персональные рекомендации":
-
-        df = pd.read_csv("data/news_dataset.csv")
-
-        results = personalized_recommendations(
-            st.session_state.username, df
-        )
-
-        st.dataframe(results[["text", "category"]])
-
-
-    # ======================================================
-    # РЕКОМЕНДАЦИИ ПО ЗАПРОСУ
+    # О СИСТЕМЕ (ПОДРОБНО)
     # ======================================================
 
-    if menu == "Рекомендации по запросу":
+    if menu == "О системе":
+        st.title(PROJECT_TITLE)
 
+        st.markdown(f"""
+**Организация:** {ORGANIZATION}  
+**Разработчик:** {DEVELOPER}  
+**Год разработки:** {YEAR}
+""")
+
+        st.divider()
+
+        st.subheader("Назначение системы")
+
+        st.write("""
+Интеллектуальный агрегатор новостей предназначен для автоматизированного анализа
+и структурирования новостного контента с применением методов машинного обучения.
+
+Система позволяет:
+• автоматически классифицировать новости по тематическим рубрикам  
+• формировать персонализированные рекомендации  
+• генерировать краткие аннотации текстов  
+• анализировать структуру новостного потока  
+• управлять пользователями и ролями доступа  
+• фиксировать действия пользователей в журнале событий  
+""")
+
+        st.subheader("Математическая основа")
+
+        st.write("""
+1. Векторизация текста осуществляется методом TF-IDF.
+2. Классификация реализована с использованием метода опорных векторов (LinearSVC).
+3. Рекомендации формируются на основе косинусной меры близости.
+4. Генерация аннотации реализована через ранжирование предложений по значимости.
+""")
+
+        st.subheader("Роли пользователей")
+
+        st.write("""
+Пользователь — получает рекомендации и классификацию.
+Аналитик — анализирует данные и логи.
+Администратор — обучает модель и управляет пользователями.
+""")
+
+
+    # ======================================================
+    # РЕКОМЕНДАЦИИ
+    # ======================================================
+
+    if menu == "Рекомендации":
         df = pd.read_csv("data/news_dataset.csv")
         text = st.text_area("Введите тему")
 
         if st.button("Получить рекомендации"):
             results = recommend_news(text, df)
             st.dataframe(results[["text", "category"]])
-            log_action("recommend_query", text, "ok")
+            log_action("recommend", text, "ok")
 
 
     # ======================================================
@@ -366,13 +363,12 @@ else:
     # ======================================================
 
     if menu == "Предсказание категории" and model:
-
         text = st.text_area("Введите текст новости")
 
         if st.button("Определить категорию"):
             pred = predict_category(text, model, vectorizer)
             st.success(f"Категория: {pred}")
-            log_action("predict", text, pred, pred)
+            log_action("predict", text, pred)
 
 
     # ======================================================
@@ -380,7 +376,6 @@ else:
     # ======================================================
 
     if menu == "Генерация аннотации":
-
         text = st.text_area("Введите полный текст новости")
 
         if st.button("Сформировать аннотацию"):
@@ -394,7 +389,6 @@ else:
     # ======================================================
 
     if menu == "Анализ данных" and st.session_state.role in ["Аналитик", "Администратор"]:
-
         df = pd.read_csv("data/news_dataset.csv")
         fig, ax = plt.subplots()
         df["category"].value_counts().plot(kind="bar", ax=ax)
@@ -406,7 +400,6 @@ else:
     # ======================================================
 
     if menu == "Обучение модели" and st.session_state.role == "Администратор":
-
         df = pd.read_csv("data/news_dataset.csv")
 
         if st.button("Обучить модель"):
@@ -415,11 +408,10 @@ else:
 
 
     # ======================================================
-    # ИСТОРИЯ
+    # ИСТОРИЯ ОБУЧЕНИЯ
     # ======================================================
 
     if menu == "История обучения" and os.path.exists(METRICS_FILE):
-
         metrics = pd.read_csv(METRICS_FILE)
         st.dataframe(metrics)
 
@@ -434,7 +426,6 @@ else:
     # ======================================================
 
     if menu == "Логи" and st.session_state.role in ["Аналитик", "Администратор"]:
-
         if os.path.exists(LOG_FILE):
             st.dataframe(pd.read_csv(LOG_FILE))
 
