@@ -19,3 +19,6 @@ timestamp,action,input_text,result
 ",top5 returned
 2026-02-13 10:09:55.328181,recommend,"путешествие по миру
 ",top5 returned
+2026-02-13 10:16:23.486872,recommend,цветы спорт мир,top5
+2026-02-13 10:17:20.882927,recommend,красота цветы спорт,top5
+2026-02-13 10:17:44.426198,recommend,война Трамп СССР,top5
