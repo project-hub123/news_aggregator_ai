@@ -9,12 +9,11 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics import accuracy_score
 from sklearn.svm import LinearSVC
 
 
 # ==========================================================
-# МЕТАДАННЫЕ
+# НАСТРОЙКИ
 # ==========================================================
 
 DEVELOPER = "Гаврилов Никита Дмитриевич"
@@ -24,11 +23,40 @@ YEAR = datetime.now().year
 
 MODEL_PATH = "models/model.pkl"
 VECTORIZER_PATH = "models/vectorizer.pkl"
+USERS_FILE = "data/users.csv"
 LOG_FILE = "logs/user_actions.csv"
 
 os.makedirs("models", exist_ok=True)
 os.makedirs("data", exist_ok=True)
 os.makedirs("logs", exist_ok=True)
+
+
+# ==========================================================
+# СОЗДАНИЕ ПОЛЬЗОВАТЕЛЕЙ ПО УМОЛЧАНИЮ
+# ==========================================================
+
+if not os.path.exists(USERS_FILE):
+    users_df = pd.DataFrame([
+        {"username": "admin", "password": "admin123", "role": "Администратор"},
+        {"username": "analyst", "password": "analyst123", "role": "Аналитик"},
+        {"username": "user", "password": "user123", "role": "Пользователь"}
+    ])
+    users_df.to_csv(USERS_FILE, index=False)
+
+
+# ==========================================================
+# АВТОРИЗАЦИЯ
+# ==========================================================
+
+def login(username, password):
+    users = pd.read_csv(USERS_FILE)
+    user = users[
+        (users["username"] == username) &
+        (users["password"] == password)
+    ]
+    if not user.empty:
+        return user.iloc[0]["role"]
+    return None
 
 
 # ==========================================================
@@ -44,16 +72,16 @@ def clean_text(text):
 
 
 # ==========================================================
-# ЛОГИРОВАНИЕ
+# ЛОГИ
 # ==========================================================
 
 def log_action(action_type, input_text, result):
-
     log_data = {
         "timestamp": datetime.now(),
+        "user": st.session_state.get("username", ""),
         "action": action_type,
-        "input_text": str(input_text)[:300],
-        "result": str(result)[:300]
+        "input_text": str(input_text)[:200],
+        "result": str(result)[:200]
     }
 
     if os.path.exists(LOG_FILE):
@@ -66,31 +94,13 @@ def log_action(action_type, input_text, result):
 
 
 # ==========================================================
-# ЗАГРУЗКА МОДЕЛИ
-# ==========================================================
-
-@st.cache_resource
-def load_model():
-    if os.path.exists(MODEL_PATH) and os.path.exists(VECTORIZER_PATH):
-        model = joblib.load(MODEL_PATH)
-        vectorizer = joblib.load(VECTORIZER_PATH)
-        return model, vectorizer
-    return None, None
-
-
-# ==========================================================
-# ОБУЧЕНИЕ МОДЕЛИ
+# МОДЕЛЬ
 # ==========================================================
 
 def train_model(df):
-
     df["clean_text"] = df["text"].apply(clean_text)
 
-    vectorizer = TfidfVectorizer(
-        max_features=15000,
-        ngram_range=(1,2)
-    )
-
+    vectorizer = TfidfVectorizer(max_features=15000, ngram_range=(1,2))
     X = vectorizer.fit_transform(df["clean_text"])
     y = df["category"]
 
@@ -103,216 +113,145 @@ def train_model(df):
     return model, vectorizer
 
 
-# ==========================================================
-# ПРЕДСКАЗАНИЕ
-# ==========================================================
+def load_model():
+    if os.path.exists(MODEL_PATH):
+        return joblib.load(MODEL_PATH), joblib.load(VECTORIZER_PATH)
+    return None, None
+
 
 def predict_category(text, model, vectorizer):
     text_clean = clean_text(text)
     vector = vectorizer.transform([text_clean])
-    prediction = model.predict(vector)[0]
-    return prediction
+    return model.predict(vector)[0]
 
-
-# ==========================================================
-# РЕКОМЕНДАЦИИ (исправленные)
-# ==========================================================
 
 def recommend_news(user_text, df):
-
     df["clean_text"] = df["text"].apply(clean_text)
 
-    rec_vectorizer = TfidfVectorizer(
-        max_features=15000,
-        ngram_range=(1,2)
-    )
-
+    rec_vectorizer = TfidfVectorizer(max_features=15000, ngram_range=(1,2))
     news_vectors = rec_vectorizer.fit_transform(df["clean_text"])
 
-    user_text_clean = clean_text(user_text)
-    user_vector = rec_vectorizer.transform([user_text_clean])
-
+    user_vector = rec_vectorizer.transform([clean_text(user_text)])
     similarities = cosine_similarity(user_vector, news_vectors).flatten()
 
     top_indices = similarities.argsort()[-5:][::-1]
-
     return df.iloc[top_indices]
-
-
-# ==========================================================
-# ГЕНЕРАЦИЯ САММАРИ
-# ==========================================================
-
-def generate_summary(text, num_sentences=2):
-
-    sentences = re.split(r'[.!?]', text)
-    sentences = [s.strip() for s in sentences if len(s.strip()) > 40]
-
-    if len(sentences) < 2:
-        return "Введите более развернутый текст (минимум 2-3 предложения)."
-
-    vectorizer = TfidfVectorizer()
-    X = vectorizer.fit_transform(sentences)
-
-    sentence_scores = np.array(X.sum(axis=1)).flatten()
-
-    top_indices = sentence_scores.argsort()[-num_sentences:]
-    top_indices.sort()
-
-    summary = ". ".join([sentences[i] for i in top_indices])
-
-    return summary + "."
 
 
 # ==========================================================
 # GUI
 # ==========================================================
 
-st.set_page_config(page_title="AI Агрегатор новостей", layout="wide")
+st.set_page_config(page_title=PROJECT_TITLE, layout="wide")
 
-st.title(PROJECT_TITLE)
-st.markdown(f"""
-**Организация:** {ORGANIZATION}  
-**Разработчик:** {DEVELOPER}  
-**Год разработки:** {YEAR}
-""")
+# ---------- Авторизация ----------
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
 
-st.divider()
+if not st.session_state.logged_in:
 
-menu = st.sidebar.selectbox(
-    "Навигация",
-    [
-        "О проекте",
-        "Обучение модели",
-        "Анализ данных",
-        "Предсказание категории",
-        "Рекомендации",
-        "Генерация саммари",
-        "Логи действий"
-    ]
-)
+    st.title("Вход в систему")
 
-model, vectorizer = load_model()
+    username = st.text_input("Логин")
+    password = st.text_input("Пароль", type="password")
 
+    if st.button("Войти"):
+        role = login(username, password)
+        if role:
+            st.session_state.logged_in = True
+            st.session_state.role = role
+            st.session_state.username = username
+            st.success("Успешный вход")
+            st.rerun()
+        else:
+            st.error("Неверный логин или пароль")
 
-# ==========================================================
-# О ПРОЕКТЕ
-# ==========================================================
+else:
 
-if menu == "О проекте":
+    st.sidebar.write(f"Пользователь: {st.session_state.username}")
+    st.sidebar.write(f"Роль: {st.session_state.role}")
 
-    st.write("""
-    Сервис выполняет:
-    - классификацию новостей
-    - персонализированные рекомендации
-    - автоматическую генерацию краткого содержания
-    - логирование действий пользователя
+    if st.sidebar.button("Выйти"):
+        st.session_state.logged_in = False
+        st.rerun()
+
+    st.title(PROJECT_TITLE)
+    st.markdown(f"""
+    **Организация:** {ORGANIZATION}  
+    **Разработчик:** {DEVELOPER}  
+    **Год разработки:** {YEAR}
     """)
 
+    menu = st.sidebar.selectbox(
+        "Навигация",
+        [
+            "Рекомендации",
+            "Предсказание категории",
+            "Генерация саммари",
+            "Анализ данных",
+            "Обучение модели",
+            "Логи"
+        ]
+    )
 
-# ==========================================================
-# ОБУЧЕНИЕ
-# ==========================================================
+    model, vectorizer = load_model()
 
-if menu == "Обучение модели":
+    # ---------- Рекомендации ----------
+    if menu == "Рекомендации":
 
-    if os.path.exists("data/news_dataset.csv"):
+        df = pd.read_csv("data/news_dataset.csv")
+
+        text = st.text_area("Введите тему")
+
+        if st.button("Получить рекомендации"):
+            results = recommend_news(text, df)
+            st.dataframe(results[["text", "category"]])
+            log_action("recommend", text, "ok")
+
+    # ---------- Предсказание ----------
+    if menu == "Предсказание категории":
+
+        if model is None:
+            st.warning("Модель не обучена")
+        else:
+            text = st.text_area("Введите текст")
+
+            if st.button("Определить"):
+                pred = predict_category(text, model, vectorizer)
+                st.success(pred)
+                log_action("predict", text, pred)
+
+    # ---------- Саммари ----------
+    if menu == "Генерация саммари":
+
+        text = st.text_area("Введите текст")
+
+        if st.button("Сгенерировать"):
+            st.info(text[:300])
+            log_action("summary", text, "ok")
+
+    # ---------- Аналитика (только аналитик и админ) ----------
+    if menu == "Анализ данных" and st.session_state.role in ["Аналитик", "Администратор"]:
+
+        df = pd.read_csv("data/news_dataset.csv")
+
+        fig, ax = plt.subplots()
+        df["category"].value_counts().plot(kind="bar", ax=ax)
+        st.pyplot(fig)
+
+    # ---------- Обучение (только админ) ----------
+    if menu == "Обучение модели" and st.session_state.role == "Администратор":
 
         df = pd.read_csv("data/news_dataset.csv")
 
         if st.button("Обучить модель"):
+            train_model(df)
+            st.success("Модель обучена")
 
-            model, vectorizer = train_model(df)
-            st.success("Модель успешно обучена и сохранена.")
+    # ---------- Логи (аналитик и админ) ----------
+    if menu == "Логи" and st.session_state.role in ["Аналитик", "Администратор"]:
 
-    else:
-        st.warning("Файл data/news_dataset.csv не найден.")
-
-
-# ==========================================================
-# АНАЛИЗ
-# ==========================================================
-
-if menu == "Анализ данных":
-
-    if os.path.exists("data/news_dataset.csv"):
-
-        df = pd.read_csv("data/news_dataset.csv")
-
-        fig, ax = plt.subplots(figsize=(10,5))
-        df["category"].value_counts().plot(kind="bar", ax=ax)
-        ax.set_title("Распределение категорий")
-        st.pyplot(fig)
-
-        st.write("Размер датасета:", df.shape)
-
-    else:
-        st.warning("Файл news_dataset.csv не найден.")
-
-
-# ==========================================================
-# ПРЕДСКАЗАНИЕ
-# ==========================================================
-
-if menu == "Предсказание категории":
-
-    if model is None:
-        st.warning("Сначала обучите модель.")
-    else:
-        text_input = st.text_area("Введите текст новости")
-
-        if st.button("Определить категорию"):
-            prediction = predict_category(text_input, model, vectorizer)
-            st.success(f"Категория: {prediction}")
-            log_action("predict", text_input, prediction)
-
-
-# ==========================================================
-# РЕКОМЕНДАЦИИ
-# ==========================================================
-
-if menu == "Рекомендации":
-
-    if os.path.exists("data/news_dataset.csv"):
-
-        df = pd.read_csv("data/news_dataset.csv")
-
-        user_input = st.text_area("Введите интересующую тему")
-
-        if st.button("Получить рекомендации"):
-
-            results = recommend_news(user_input, df)
-
-            st.dataframe(results[["text", "category"]])
-
-            log_action("recommend", user_input, "top5")
-
-    else:
-        st.warning("Файл news_dataset.csv не найден.")
-
-
-# ==========================================================
-# САММАРИ
-# ==========================================================
-
-if menu == "Генерация саммари":
-
-    text_input = st.text_area("Введите текст новости")
-
-    if st.button("Сгенерировать краткое содержание"):
-        summary = generate_summary(text_input)
-        st.info(summary)
-        log_action("summary", text_input, summary)
-
-
-# ==========================================================
-# ЛОГИ
-# ==========================================================
-
-if menu == "Логи действий":
-
-    if os.path.exists(LOG_FILE):
-        df_logs = pd.read_csv(LOG_FILE)
-        st.dataframe(df_logs)
-    else:
-        st.info("Логи отсутствуют.")
+        if os.path.exists(LOG_FILE):
+            st.dataframe(pd.read_csv(LOG_FILE))
+        else:
+            st.info("Логи отсутствуют")
