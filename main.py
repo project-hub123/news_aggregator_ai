@@ -11,6 +11,8 @@ from datetime import datetime
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.svm import LinearSVC
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
 
 
 # ==========================================================
@@ -26,6 +28,7 @@ MODEL_PATH = "models/model.pkl"
 VECTORIZER_PATH = "models/vectorizer.pkl"
 USERS_FILE = "data/users.csv"
 LOG_FILE = "logs/user_actions.csv"
+METRICS_FILE = "models/metrics.csv"
 
 os.makedirs("models", exist_ok=True)
 os.makedirs("data", exist_ok=True)
@@ -45,14 +48,11 @@ def hash_password(password):
 # ==========================================================
 
 if not os.path.exists(USERS_FILE):
-    users_df = pd.DataFrame([
-        {
-            "username": "admin",
-            "password": hash_password("admin123"),
-            "role": "Администратор"
-        }
-    ])
-    users_df.to_csv(USERS_FILE, index=False)
+    pd.DataFrame([{
+        "username": "admin",
+        "password": hash_password("admin123"),
+        "role": "Администратор"
+    }]).to_csv(USERS_FILE, index=False)
 
 
 # ==========================================================
@@ -62,46 +62,37 @@ if not os.path.exists(USERS_FILE):
 def load_users():
     return pd.read_csv(USERS_FILE)
 
-
 def save_users(df):
     df.to_csv(USERS_FILE, index=False)
-
 
 def login(username, password):
     users = load_users()
     hashed = hash_password(password)
-    user = users[
-        (users["username"] == username) &
-        (users["password"] == hashed)
-    ]
+    user = users[(users["username"] == username) &
+                 (users["password"] == hashed)]
     if not user.empty:
         return user.iloc[0]["role"]
     return None
 
-
-def register_user(username, password, role="Пользователь"):
+def register_user(username, password):
     users = load_users()
-
     if username in users["username"].values:
         return False, "Пользователь уже существует"
 
     new_user = {
         "username": username,
         "password": hash_password(password),
-        "role": role
+        "role": "Пользователь"
     }
 
     users = pd.concat([users, pd.DataFrame([new_user])])
     save_users(users)
-
     return True, "Регистрация успешна"
-
 
 def delete_user(username):
     users = load_users()
     users = users[users["username"] != username]
     save_users(users)
-
 
 def update_role(username, new_role):
     users = load_users()
@@ -122,7 +113,7 @@ def clean_text(text):
 
 
 # ==========================================================
-# ЛОГИ
+# ЛОГИРОВАНИЕ
 # ==========================================================
 
 def log_action(action_type, input_text, result):
@@ -130,17 +121,17 @@ def log_action(action_type, input_text, result):
         "timestamp": datetime.now(),
         "user": st.session_state.get("username", ""),
         "action": action_type,
-        "input_text": str(input_text)[:200],
+        "input": str(input_text)[:200],
         "result": str(result)[:200]
     }
 
     if os.path.exists(LOG_FILE):
-        df_logs = pd.read_csv(LOG_FILE)
-        df_logs = pd.concat([df_logs, pd.DataFrame([log_data])])
+        logs = pd.read_csv(LOG_FILE)
+        logs = pd.concat([logs, pd.DataFrame([log_data])])
     else:
-        df_logs = pd.DataFrame([log_data])
+        logs = pd.DataFrame([log_data])
 
-    df_logs.to_csv(LOG_FILE, index=False)
+    logs.to_csv(LOG_FILE, index=False)
 
 
 # ==========================================================
@@ -150,17 +141,35 @@ def log_action(action_type, input_text, result):
 def train_model(df):
     df["clean_text"] = df["text"].apply(clean_text)
 
-    vectorizer = TfidfVectorizer(max_features=15000, ngram_range=(1,2))
+    vectorizer = TfidfVectorizer(max_features=20000, ngram_range=(1,2))
     X = vectorizer.fit_transform(df["clean_text"])
     y = df["category"]
 
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42
+    )
+
     model = LinearSVC()
-    model.fit(X, y)
+    model.fit(X_train, y_train)
+
+    y_pred = model.predict(X_test)
+    acc = accuracy_score(y_test, y_pred)
 
     joblib.dump(model, MODEL_PATH)
     joblib.dump(vectorizer, VECTORIZER_PATH)
 
-    return model, vectorizer
+    metrics = pd.DataFrame([{
+        "date": datetime.now(),
+        "accuracy": acc
+    }])
+
+    if os.path.exists(METRICS_FILE):
+        old = pd.read_csv(METRICS_FILE)
+        metrics = pd.concat([old, metrics])
+
+    metrics.to_csv(METRICS_FILE, index=False)
+
+    return acc
 
 
 def load_model():
@@ -177,10 +186,10 @@ def predict_category(text, model, vectorizer):
 def recommend_news(user_text, df):
     df["clean_text"] = df["text"].apply(clean_text)
 
-    rec_vectorizer = TfidfVectorizer(max_features=15000, ngram_range=(1,2))
-    news_vectors = rec_vectorizer.fit_transform(df["clean_text"])
+    vectorizer = TfidfVectorizer(max_features=20000, ngram_range=(1,2))
+    news_vectors = vectorizer.fit_transform(df["clean_text"])
 
-    user_vector = rec_vectorizer.transform([clean_text(user_text)])
+    user_vector = vectorizer.transform([clean_text(user_text)])
     similarities = cosine_similarity(user_vector, news_vectors).flatten()
 
     top_indices = similarities.argsort()[-5:][::-1]
@@ -198,7 +207,7 @@ if "logged_in" not in st.session_state:
 
 
 # ==========================================================
-# АВТОРИЗАЦИЯ / РЕГИСТРАЦИЯ
+# ВХОД / РЕГИСТРАЦИЯ
 # ==========================================================
 
 if not st.session_state.logged_in:
@@ -215,9 +224,8 @@ if not st.session_state.logged_in:
             role = login(username, password)
             if role:
                 st.session_state.logged_in = True
-                st.session_state.role = role
                 st.session_state.username = username
-                st.success("Успешный вход")
+                st.session_state.role = role
                 st.rerun()
             else:
                 st.error("Неверный логин или пароль")
@@ -227,12 +235,11 @@ if not st.session_state.logged_in:
         new_pass = st.text_input("Новый пароль", type="password")
 
         if st.button("Зарегистрироваться"):
-            success, message = register_user(new_user, new_pass)
+            success, msg = register_user(new_user, new_pass)
             if success:
-                st.success(message)
+                st.success(msg)
             else:
-                st.error(message)
-
+                st.error(msg)
 
 # ==========================================================
 # ОСНОВНОЙ ИНТЕРФЕЙС
@@ -250,10 +257,12 @@ else:
     menu = st.sidebar.selectbox(
         "Навигация",
         [
+            "О системе",
             "Рекомендации",
             "Предсказание категории",
             "Анализ данных",
             "Обучение модели",
+            "История обучения",
             "Логи",
             "Управление пользователями"
         ]
@@ -261,9 +270,26 @@ else:
 
     model, vectorizer = load_model()
 
-    # =============================
+    # ======================================================
+    # О СИСТЕМЕ
+    # ======================================================
+
+    if menu == "О системе":
+        st.title(PROJECT_TITLE)
+        st.markdown(f"""
+**Организация:** {ORGANIZATION}  
+**Разработчик:** {DEVELOPER}  
+**Год разработки:** {YEAR}
+""")
+        st.write("""
+Система предназначена для интеллектуальной агрегации новостной информации
+с использованием методов машинного обучения.
+""")
+
+    # ======================================================
     # РЕКОМЕНДАЦИИ
-    # =============================
+    # ======================================================
+
     if menu == "Рекомендации":
         df = pd.read_csv("data/news_dataset.csv")
         text = st.text_area("Введите тему")
@@ -273,9 +299,10 @@ else:
             st.dataframe(results[["text", "category"]])
             log_action("recommend", text, "ok")
 
-    # =============================
+    # ======================================================
     # ПРЕДСКАЗАНИЕ
-    # =============================
+    # ======================================================
+
     if menu == "Предсказание категории" and model:
         text = st.text_area("Введите текст")
 
@@ -284,42 +311,58 @@ else:
             st.success(pred)
             log_action("predict", text, pred)
 
-    # =============================
+    # ======================================================
     # АНАЛИЗ
-    # =============================
+    # ======================================================
+
     if menu == "Анализ данных" and st.session_state.role in ["Аналитик", "Администратор"]:
         df = pd.read_csv("data/news_dataset.csv")
         fig, ax = plt.subplots()
         df["category"].value_counts().plot(kind="bar", ax=ax)
         st.pyplot(fig)
 
-    # =============================
+    # ======================================================
     # ОБУЧЕНИЕ
-    # =============================
+    # ======================================================
+
     if menu == "Обучение модели" and st.session_state.role == "Администратор":
         df = pd.read_csv("data/news_dataset.csv")
-        if st.button("Обучить"):
-            train_model(df)
-            st.success("Модель обучена")
 
-    # =============================
+        if st.button("Обучить модель"):
+            acc = train_model(df)
+            st.success(f"Модель обучена. Accuracy: {acc:.3f}")
+
+    # ======================================================
+    # ИСТОРИЯ ОБУЧЕНИЯ
+    # ======================================================
+
+    if menu == "История обучения" and os.path.exists(METRICS_FILE):
+        metrics = pd.read_csv(METRICS_FILE)
+        st.dataframe(metrics)
+
+        fig, ax = plt.subplots()
+        ax.plot(metrics["accuracy"])
+        ax.set_title("Динамика Accuracy")
+        st.pyplot(fig)
+
+    # ======================================================
     # ЛОГИ
-    # =============================
+    # ======================================================
+
     if menu == "Логи" and st.session_state.role in ["Аналитик", "Администратор"]:
         if os.path.exists(LOG_FILE):
             st.dataframe(pd.read_csv(LOG_FILE))
 
-    # =============================
+    # ======================================================
     # УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ
-    # =============================
+    # ======================================================
+
     if menu == "Управление пользователями" and st.session_state.role == "Администратор":
 
         users = load_users()
         st.dataframe(users)
 
-        st.subheader("Изменить роль")
-
-        user_to_edit = st.selectbox("Выберите пользователя", users["username"])
+        user_to_edit = st.selectbox("Изменить роль пользователя", users["username"])
         new_role = st.selectbox("Новая роль", ["Пользователь", "Аналитик", "Администратор"])
 
         if st.button("Обновить роль"):
@@ -327,14 +370,12 @@ else:
             st.success("Роль обновлена")
             st.rerun()
 
-        st.subheader("Удалить пользователя")
-
         user_to_delete = st.selectbox("Удалить пользователя", users["username"])
 
         if st.button("Удалить"):
             if user_to_delete != "admin":
                 delete_user(user_to_delete)
-                st.success("Пользователь удалён")
+                st.success("Удалён")
                 st.rerun()
             else:
                 st.error("Админа удалить нельзя")
