@@ -47,7 +47,7 @@ def log_action(action, input_text="", result="", category=None):
 
     if os.path.exists(LOG_FILE):
         logs = pd.read_csv(LOG_FILE)
-        logs = pd.concat([logs, pd.DataFrame([log_data])])
+        logs = pd.concat([logs, pd.DataFrame([log_data])], ignore_index=True)
     else:
         logs = pd.DataFrame([log_data])
 
@@ -79,7 +79,7 @@ def get_user_preference(username):
     return user_logs["category"].value_counts().idxmax()
 
 
-def personalized_recommendations(username, df):
+def personalized_recommendations(username, df, vectorizer):
 
     preferred = get_user_preference(username)
 
@@ -126,6 +126,7 @@ if not st.session_state.logged_in:
                 st.success(msg)
             else:
                 st.error(msg)
+
 
 # ==========================================================
 # ОСНОВНАЯ СИСТЕМА
@@ -174,32 +175,36 @@ else:
 
         st.divider()
 
-        st.subheader("Назначение")
+        st.subheader("Назначение системы")
 
         st.write("""
-Система предназначена для автоматизации обработки новостной информации.
-Она анализирует текст, классифицирует его, формирует рекомендации и
-создает краткие аннотации.
+Интеллектуальный агрегатор новостей предназначен для автоматизированной
+обработки текстовой новостной информации. Система анализирует текст,
+определяет его тематику, формирует рекомендации и создает краткие аннотации.
+
+Решение реализовано на основе методов машинного обучения и
+использует TF-IDF векторизацию, классификацию LinearSVC
+и косинусную меру близости.
 """)
 
-        st.subheader("Функциональные возможности")
+        st.subheader("Основные функции")
 
         st.write("""
-- Классификация новостей по рубрикам  
-- Формирование рекомендаций  
-- Персонализированная выдача  
-- Генерация аннотаций  
-- Анализ датасета  
-- Обучение модели  
-- Журналирование действий  
+Классификация новостей по рубрикам  
+Формирование рекомендаций  
+Персонализированная выдача  
+Генерация аннотаций  
+Анализ датасета  
+Обучение модели  
+Журналирование действий  
 """)
 
-        st.subheader("Роли")
+        st.subheader("Роли пользователей")
 
         st.write("""
 Пользователь — базовый доступ  
-Аналитик — анализ данных и логи  
-Администратор — управление системой  
+Аналитик — анализ данных и журналов  
+Администратор — управление пользователями и обучение модели  
 """)
 
     # ======================================================
@@ -214,11 +219,12 @@ else:
 
         if st.button("Получить рекомендации"):
 
-            results = recommend_news(user_text, df, vectorizer)
-
-            st.dataframe(results[["text", "category"]])
-
-            log_action("recommend", user_text, "ok")
+            if vectorizer is None:
+                st.warning("Модель не обучена.")
+            else:
+                results = recommend_news(user_text, df, vectorizer)
+                st.dataframe(results[["text", "category"]])
+                log_action("recommend", user_text, "ok")
 
     # ======================================================
     # ПЕРСОНАЛЬНЫЕ РЕКОМЕНДАЦИИ
@@ -228,31 +234,36 @@ else:
 
         df = pd.read_csv("data/news_dataset.csv")
 
-        results = personalized_recommendations(
-            st.session_state.username,
-            df
-        )
-
-        if results is not None:
-            st.dataframe(results[["text", "category"]])
+        if vectorizer is None:
+            st.warning("Модель не обучена.")
         else:
-            st.info("Недостаточно данных для персональной подборки")
+            results = personalized_recommendations(
+                st.session_state.username,
+                df,
+                vectorizer
+            )
+
+            if results is not None:
+                st.dataframe(results[["text", "category"]])
+            else:
+                st.info("Недостаточно данных для персональной подборки")
 
     # ======================================================
     # ПРЕДСКАЗАНИЕ
     # ======================================================
 
-    if menu == "Предсказание категории" and model:
+    if menu == "Предсказание категории":
 
-        text = st.text_area("Введите текст новости")
+        if model is None:
+            st.warning("Модель не обучена.")
+        else:
+            text = st.text_area("Введите текст новости")
 
-        if st.button("Определить категорию"):
+            if st.button("Определить категорию"):
 
-            pred = predict_category(text, model, vectorizer)
-
-            st.success(f"Категория: {pred}")
-
-            log_action("predict", text, pred, pred)
+                pred = predict_category(text, model, vectorizer)
+                st.success(f"Категория: {pred}")
+                log_action("predict", text, pred, pred)
 
     # ======================================================
     # АННОТАЦИЯ
@@ -265,9 +276,7 @@ else:
         if st.button("Сформировать аннотацию"):
 
             summary = generate_summary(text)
-
             st.info(summary)
-
             log_action("summary", text, summary)
 
     # ======================================================
@@ -279,7 +288,6 @@ else:
         df = pd.read_csv("data/news_dataset.csv")
 
         info = dataset_overview(df)
-
         st.write(info)
 
         fig1 = plot_category_distribution(df)
