@@ -12,15 +12,31 @@ os.makedirs("data", exist_ok=True)
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
+# СОЗДАНИЕ ТЕСТОВЫХ ПОЛЬЗОВАТЕЛЕЙ
 
 if not os.path.exists(USERS_FILE):
-    pd.DataFrame([{
-        "username": "admin",
-        "password": hash_password("admin123"),
-        "role": "Администратор",
-        "created_at": datetime.now()
-    }]).to_csv(USERS_FILE, index=False)
+    pd.DataFrame([
+        {
+            "username": "admin",
+            "password": hash_password("123"),
+            "role": "Администратор",
+            "created_at": datetime.now()
+        },
+        {
+            "username": "analyst",
+            "password": hash_password("123"),
+            "role": "Аналитик",
+            "created_at": datetime.now()
+        },
+        {
+            "username": "user",
+            "password": hash_password("123"),
+            "role": "Пользователь",
+            "created_at": datetime.now()
+        }
+    ]).to_csv(USERS_FILE, index=False)
 
+# ЗАГРУЗКА ПОЛЬЗОВАТЕЛЕЙ
 
 def load_users():
     return pd.read_csv(USERS_FILE)
@@ -29,18 +45,26 @@ def load_users():
 def save_users(df):
     df.to_csv(USERS_FILE, index=False)
 
+# АВТОРИЗАЦИЯ
 
 def login(username, password):
     users = load_users()
     hashed = hash_password(password)
-    user = users[(users["username"] == username) &
-                 (users["password"] == hashed)]
+
+    user = users[
+        (users["username"] == username) &
+        (users["password"] == hashed)
+    ]
+
     if not user.empty:
         return user.iloc[0]["role"]
+
     return None
 
+# РЕГИСТРАЦИЯ
 
 def register_user(username, password):
+
     users = load_users()
 
     if username in users["username"].values:
@@ -53,19 +77,28 @@ def register_user(username, password):
         "created_at": datetime.now()
     }
 
-    users = pd.concat([users, pd.DataFrame([new_user])])
+    users = pd.concat([users, pd.DataFrame([new_user])], ignore_index=True)
+
     save_users(users)
 
     return True, "Регистрация успешна"
 
+# УДАЛЕНИЕ ПОЛЬЗОВАТЕЛЯ
 
 def delete_user(username):
+
     users = load_users()
+
     users = users[users["username"] != username]
+
     save_users(users)
 
+# ИЗМЕНЕНИЕ РОЛИ
 
 def update_role(username, new_role):
+
     users = load_users()
+
     users.loc[users["username"] == username, "role"] = new_role
+
     save_users(users)
