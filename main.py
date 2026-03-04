@@ -48,47 +48,36 @@ def log_action(action, input_text="", result="", category=None):
     logs.to_csv(LOG_FILE, index=False)
 
 
-def get_user_preference(username):
+def personalized_recommendations(username, df, vectorizer):
 
     if not os.path.exists(LOG_FILE):
-        return None
+        return df.sample(min(15, len(df)))
 
     logs = pd.read_csv(LOG_FILE)
 
-    if "category" not in logs.columns:
-        return None
-
-    user_logs = logs[
-        (logs["user"] == username) &
-        (logs["category"].notna())
-    ]
+    user_logs = logs[logs["user"] == username]
 
     if user_logs.empty:
-        return None
+        return df.sample(min(15, len(df)))
 
-    return user_logs["category"].value_counts().idxmax()
+    history_text = user_logs["input"].dropna().astype(str)
 
-
-def personalized_recommendations(username, df, vectorizer):
-
-    preferred = get_user_preference(username)
-
-    if preferred and "category" in df.columns:
-        df = df[df["category"] == preferred]
-
-    if df.empty:
-        return None
+    if len(history_text) == 0:
+        return df.sample(min(15, len(df)))
 
     df = df.copy()
-    df["clean_text"] = df["text"].astype(str)
+
+    df["clean_text"] = df["text"].apply(clean_text)
 
     news_vectors = vectorizer.transform(df["clean_text"])
 
-    mean_vector = np.asarray(news_vectors.mean(axis=0))
+    user_vectors = vectorizer.transform(history_text)
 
-    similarity = cosine_similarity(mean_vector, news_vectors).flatten()
+    user_profile = np.asarray(user_vectors.mean(axis=0))
 
-    top_indices = similarity.argsort()[-5:][::-1]
+    similarity = cosine_similarity(user_profile, news_vectors).flatten()
+
+    top_indices = similarity.argsort()[-15:][::-1]
 
     return df.iloc[top_indices]
 
