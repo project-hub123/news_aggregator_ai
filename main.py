@@ -55,7 +55,10 @@ def personalized_recommendations(username, df, vectorizer):
 
     logs = pd.read_csv(LOG_FILE)
 
-    user_logs = logs[logs["user"] == username]
+    user_logs = logs[
+        (logs["user"] == username) &
+        (logs["action"] == "recommend")
+]
 
     if user_logs.empty:
         return df.sample(min(15, len(df)))
