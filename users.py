@@ -18,7 +18,7 @@ if not os.path.exists(USERS_FILE):
     pd.DataFrame([
         {
             "username": "admin",
-            "password": hash_password("123"),
+            "password": hash_password("admin123"),
             "role": "Администратор",
             "created_at": datetime.now()
         },

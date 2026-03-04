@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import os
 import matplotlib.pyplot as plt
+import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
 from config import *
@@ -78,11 +79,12 @@ def personalized_recommendations(username, df, vectorizer):
     if df.empty:
         return None
 
+    df = df.copy()
     df["clean_text"] = df["text"].astype(str)
 
     news_vectors = vectorizer.transform(df["clean_text"])
 
-    mean_vector = news_vectors.mean(axis=0)
+    mean_vector = np.asarray(news_vectors.mean(axis=0))
 
     similarity = cosine_similarity(mean_vector, news_vectors).flatten()
 
