@@ -86,7 +86,7 @@ if not st.session_state.logged_in:
 
     st.title("Вход в систему")
 
-    tab1, tab2 = st.tabs(["Вход", "Регистрация"])
+    tab1 = st.tabs(["Вход"])[0]
 
     with tab1:
         username = st.text_input("Логин")
@@ -102,17 +102,6 @@ if not st.session_state.logged_in:
             else:
                 st.error("Неверный логин или пароль")
 
-    with tab2:
-        new_user = st.text_input("Новый логин")
-        new_pass = st.text_input("Новый пароль", type="password")
-
-        if st.button("Зарегистрироваться"):
-            success, msg = register_user(new_user, new_pass)
-            if success:
-                st.success(msg)
-            else:
-                st.error(msg)
-
 else:
 
     st.sidebar.write(f"Пользователь: {st.session_state.username}")
@@ -122,20 +111,26 @@ else:
         st.session_state.logged_in = False
         st.rerun()
 
+    menu_items = [
+        "О системе",
+        "Рекомендации",
+        "Персональные рекомендации",
+        "Генерация аннотации"
+    ]
+
+    if st.session_state.role in ["Аналитик", "Администратор"]:
+        menu_items.append("Анализ данных")
+        menu_items.append("Логи")
+
+    if st.session_state.role == "Администратор":
+        menu_items.append("Предсказание категории")
+        menu_items.append("Обучение модели")
+        menu_items.append("История обучения")
+        menu_items.append("Управление пользователями")
+
     menu = st.sidebar.selectbox(
         "Навигация",
-        [
-            "О системе",
-            "Рекомендации",
-            "Персональные рекомендации",
-            "Предсказание категории",
-            "Генерация аннотации",
-            "Анализ данных",
-            "Обучение модели",
-            "История обучения",
-            "Логи",
-            "Управление пользователями"
-        ]
+        menu_items
     )
 
     model, vectorizer = load_model()
@@ -253,7 +248,7 @@ else:
             st.info(summary)
             log_action("summary", text, summary)
 
-    if menu == "Анализ данных" and st.session_state.role in ["Аналитик", "Администратор"]:
+    if menu == "Анализ данных":
 
         df = pd.read_csv("data/news_dataset.csv")
 
@@ -266,7 +261,7 @@ else:
         fig2 = plot_text_length_distribution(df)
         st.pyplot(fig2)
 
-    if menu == "Обучение модели" and st.session_state.role == "Администратор":
+    if menu == "Обучение модели":
 
         df = pd.read_csv("data/news_dataset.csv")
 
@@ -296,12 +291,12 @@ else:
             ax.set_title("Динамика Accuracy")
             st.pyplot(fig)
 
-    if menu == "Логи" and st.session_state.role in ["Аналитик", "Администратор"]:
+    if menu == "Логи":
 
         if os.path.exists(LOG_FILE):
             st.dataframe(pd.read_csv(LOG_FILE))
 
-    if menu == "Управление пользователями" and st.session_state.role == "Администратор":
+    if menu == "Управление пользователями":
 
         users = load_users()
 
