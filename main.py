@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import os
 import matplotlib.pyplot as plt
+from sklearn.metrics.pairwise import cosine_similarity
 
 from config import *
 from users import *
@@ -10,10 +11,6 @@ from summarizer import generate_summary
 from analytics import *
 from datetime import datetime
 
-
-# ==========================================================
-# STREAMLIT НАСТРОЙКА
-# ==========================================================
 
 st.set_page_config(
     page_title=PROJECT_TITLE,
@@ -29,10 +26,6 @@ if "username" not in st.session_state:
 if "role" not in st.session_state:
     st.session_state.role = None
 
-
-# ==========================================================
-# ЛОГИРОВАНИЕ
-# ==========================================================
 
 def log_action(action, input_text="", result="", category=None):
 
@@ -53,10 +46,6 @@ def log_action(action, input_text="", result="", category=None):
 
     logs.to_csv(LOG_FILE, index=False)
 
-
-# ==========================================================
-# ПЕРСОНАЛИЗАЦИЯ
-# ==========================================================
 
 def get_user_preference(username):
 
@@ -89,12 +78,18 @@ def personalized_recommendations(username, df, vectorizer):
     if df.empty:
         return None
 
-    return df.sample(min(5, len(df)))
+    df["clean_text"] = df["text"].astype(str)
 
+    news_vectors = vectorizer.transform(df["clean_text"])
 
-# ==========================================================
-# ВХОД / РЕГИСТРАЦИЯ
-# ==========================================================
+    mean_vector = news_vectors.mean(axis=0)
+
+    similarity = cosine_similarity(mean_vector, news_vectors).flatten()
+
+    top_indices = similarity.argsort()[-5:][::-1]
+
+    return df.iloc[top_indices]
+
 
 if not st.session_state.logged_in:
 
@@ -127,11 +122,6 @@ if not st.session_state.logged_in:
             else:
                 st.error(msg)
 
-
-# ==========================================================
-# ОСНОВНАЯ СИСТЕМА
-# ==========================================================
-
 else:
 
     st.sidebar.write(f"Пользователь: {st.session_state.username}")
@@ -159,10 +149,6 @@ else:
 
     model, vectorizer = load_model()
 
-    # ======================================================
-    # О СИСТЕМЕ
-    # ======================================================
-
     if menu == "О системе":
 
         st.title(PROJECT_TITLE)
@@ -172,8 +158,6 @@ else:
 **Разработчик:** {DEVELOPER}  
 **Год разработки:** {YEAR}
 """)
-
-        st.divider()
 
         st.subheader("Назначение системы")
 
@@ -207,10 +191,6 @@ else:
 Администратор — управление пользователями и обучение модели  
 """)
 
-    # ======================================================
-    # РЕКОМЕНДАЦИИ
-    # ======================================================
-
     if menu == "Рекомендации":
 
         df = pd.read_csv("data/news_dataset.csv")
@@ -225,10 +205,6 @@ else:
                 results = recommend_news(user_text, df, vectorizer)
                 st.dataframe(results[["text", "category"]])
                 log_action("recommend", user_text, "ok")
-
-    # ======================================================
-    # ПЕРСОНАЛЬНЫЕ РЕКОМЕНДАЦИИ
-    # ======================================================
 
     if menu == "Персональные рекомендации":
 
@@ -248,10 +224,6 @@ else:
             else:
                 st.info("Недостаточно данных для персональной подборки")
 
-    # ======================================================
-    # ПРЕДСКАЗАНИЕ
-    # ======================================================
-
     if menu == "Предсказание категории":
 
         if model is None:
@@ -265,10 +237,6 @@ else:
                 st.success(f"Категория: {pred}")
                 log_action("predict", text, pred, pred)
 
-    # ======================================================
-    # АННОТАЦИЯ
-    # ======================================================
-
     if menu == "Генерация аннотации":
 
         text = st.text_area("Введите полный текст")
@@ -278,10 +246,6 @@ else:
             summary = generate_summary(text)
             st.info(summary)
             log_action("summary", text, summary)
-
-    # ======================================================
-    # АНАЛИЗ
-    # ======================================================
 
     if menu == "Анализ данных" and st.session_state.role in ["Аналитик", "Администратор"]:
 
@@ -295,10 +259,6 @@ else:
 
         fig2 = plot_text_length_distribution(df)
         st.pyplot(fig2)
-
-    # ======================================================
-    # ОБУЧЕНИЕ
-    # ======================================================
 
     if menu == "Обучение модели" and st.session_state.role == "Администратор":
 
@@ -317,10 +277,6 @@ else:
 
             st.pyplot(cm_fig)
 
-    # ======================================================
-    # ИСТОРИЯ ОБУЧЕНИЯ
-    # ======================================================
-
     if menu == "История обучения":
 
         if os.path.exists(METRICS_FILE):
@@ -334,18 +290,10 @@ else:
             ax.set_title("Динамика Accuracy")
             st.pyplot(fig)
 
-    # ======================================================
-    # ЛОГИ
-    # ======================================================
-
     if menu == "Логи" and st.session_state.role in ["Аналитик", "Администратор"]:
 
         if os.path.exists(LOG_FILE):
             st.dataframe(pd.read_csv(LOG_FILE))
-
-    # ======================================================
-    # УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ
-    # ======================================================
 
     if menu == "Управление пользователями" and st.session_state.role == "Администратор":
 
@@ -354,16 +302,17 @@ else:
         st.dataframe(users)
 
         user_edit = st.selectbox("Изменить роль", users["username"])
-        new_role = st.selectbox("Новая роль",
-                                ["Пользователь", "Аналитик", "Администратор"])
+        new_role = st.selectbox(
+            "Новая роль",
+            ["Пользователь", "Аналитик", "Администратор"]
+        )
 
         if st.button("Обновить роль"):
             update_role(user_edit, new_role)
             st.success("Роль обновлена")
             st.rerun()
 
-        user_delete = st.selectbox("Удалить пользователя",
-                                   users["username"])
+        user_delete = st.selectbox("Удалить пользователя", users["username"])
 
         if st.button("Удалить"):
             if user_delete != "admin":
