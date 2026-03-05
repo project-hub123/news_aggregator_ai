@@ -89,9 +89,10 @@ if not st.session_state.logged_in:
 
     st.title("Вход в систему")
 
-    tab1 = st.tabs(["Вход"])[0]
+    tab1, tab2 = st.tabs(["Вход", "Регистрация"])
 
     with tab1:
+
         username = st.text_input("Логин")
         password = st.text_input("Пароль", type="password")
 
@@ -104,6 +105,21 @@ if not st.session_state.logged_in:
                 st.rerun()
             else:
                 st.error("Неверный логин или пароль")
+
+    with tab2:
+
+        st.subheader("Регистрация нового пользователя")
+
+        new_username = st.text_input("Новый логин")
+        new_password = st.text_input("Новый пароль", type="password")
+
+        if st.button("Зарегистрироваться"):
+            success, message = register_user(new_username, new_password)
+
+            if success:
+                st.success(message)
+            else:
+                st.error(message)
 
 else:
 
