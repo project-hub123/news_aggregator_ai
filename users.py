@@ -12,10 +12,12 @@ os.makedirs("data", exist_ok=True)
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
-# СОЗДАНИЕ ТЕСТОВЫХ ПОЛЬЗОВАТЕЛЕЙ
 
-if not os.path.exists(USERS_FILE):
-    pd.DataFrame([
+# СОЗДАНИЕ И ПРОВЕРКА ТЕСТОВЫХ ПОЛЬЗОВАТЕЛЕЙ
+
+def ensure_default_users():
+
+    default_users = [
         {
             "username": "admin",
             "password": hash_password("admin123"),
@@ -34,12 +36,35 @@ if not os.path.exists(USERS_FILE):
             "role": "Пользователь",
             "created_at": datetime.now()
         }
-    ]).to_csv(USERS_FILE, index=False)
+    ]
+
+    if not os.path.exists(USERS_FILE):
+
+        pd.DataFrame(default_users).to_csv(USERS_FILE, index=False)
+
+    else:
+
+        users = pd.read_csv(USERS_FILE, encoding="utf-8")
+
+        for default_user in default_users:
+
+            if default_user["username"] not in users["username"].values:
+
+                users = pd.concat(
+                    [users, pd.DataFrame([default_user])],
+                    ignore_index=True
+                )
+
+        users.to_csv(USERS_FILE, index=False)
+
+
+ensure_default_users()
+
 
 # ЗАГРУЗКА ПОЛЬЗОВАТЕЛЕЙ
 
 def load_users():
-    return pd.read_csv(USERS_FILE)
+    return pd.read_csv(USERS_FILE, encoding="utf-8")
 
 
 def save_users(df):
